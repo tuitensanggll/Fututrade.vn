@@ -51,6 +51,24 @@
   .sentiment-gauge{ margin-top:6px; }
   .sentiment-gauge svg{ width:100%; height:auto; display:block; }
 
+  /* ===== Gauge Long/Short: animation mượt, glow, pulse ===== */
+  .ls-svg{ opacity:0; transform:scale(.96); animation:lsFadeIn .5s cubic-bezier(.2,.8,.2,1) forwards; }
+  @keyframes lsFadeIn{ to{ opacity:1; transform:scale(1); } }
+  #ls-dot{ transition:fill .3s ease; }
+  #ls-dot-glow{ animation:lsBreathe 1.8s ease-in-out infinite; transform-origin:center; transform-box:fill-box; }
+  @keyframes lsBreathe{ 0%,100%{ opacity:.25; transform:scale(1); } 50%{ opacity:.5; transform:scale(1.35); } }
+  #ls-percent, #ls-label{ transition:fill .3s ease; }
+  .ls-footer{ display:flex; align-items:center; justify-content:center; gap:10px; margin-top:2px; font-size:11.5px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; flex-wrap:wrap; }
+  .ls-footer b{ color:#c7cdda; }
+  .ls-delta{ font-weight:700; padding:2px 8px; border-radius:20px; font-size:11px; letter-spacing:.2px; }
+  .ls-delta.up{ color:#2ecc71; background:#2ecc7122; }
+  .ls-delta.down{ color:#e0455c; background:#e0455c22; }
+  .ls-delta.flat{ color:var(--text-dim); background:transparent; }
+  .ls-delta.pulse{ animation:lsPulse .5s ease-out; }
+  @keyframes lsPulse{ 0%{ transform:scale(1.28); } 100%{ transform:scale(1); } }
+  .sentiment-card{ transition:box-shadow .3s ease; }
+  .sentiment-card:hover{ box-shadow:0 0 0 1px var(--border), 0 8px 24px rgba(0,0,0,.25); }
+
   /* TREND PANEL */
   .trend-panel{ margin-top:14px; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
   .trend-card{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px; position:relative; overflow:hidden; }
@@ -109,6 +127,35 @@
   .pane-drag{ color:var(--text-dim); font-size:12px; letter-spacing:-1px; }
   .pane-title{ font-size:10.5px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; }
   #chart-volume{ width:100%; height:150px; min-height:60px; }
+  #chart-volume .tv-lightweight-charts table {
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #chart-volume .tv-lightweight-charts table td:first-child {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    overflow: hidden !important;
+  }
+  #chart-volume .tv-lightweight-charts table td:first-child * {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    overflow: hidden !important;
+  }
+  #chart-volume .tv-lightweight-charts table td:nth-child(2) > div {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
   #chart-rsi{ width:100%; height:130px; min-height:60px; }
   .chart-legend{ position:absolute; top:6px; left:10px; z-index:5; font-size:11px; font-family:'JetBrains Mono',monospace; display:flex; gap:6px; flex-wrap:wrap; }
   .ind-item{ display:flex; align-items:center; gap:4px; background:#0e131be0; border:1px solid var(--border); border-radius:6px; padding:3px 5px; cursor:grab; pointer-events:auto; user-select:none; transition:opacity .15s; }
@@ -117,6 +164,7 @@
   .ind-item .ind-drag{ color:#4d5568; font-size:10px; letter-spacing:-1px; }
   .ind-item .ind-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
   .ind-item .ind-label{ color:#c7cdda; white-space:nowrap; }
+  .ind-item .ind-value{ font-family:'JetBrains Mono', monospace; font-weight:700; white-space:nowrap; margin-left:2px; }
   .ind-item .ind-eye, .ind-item .ind-gear{ background:transparent; border:none; color:var(--text-dim); cursor:pointer; font-size:11px; padding:0 2px; line-height:1; }
   .ind-item .ind-eye:hover, .ind-item .ind-gear:hover{ color:var(--text); }
   .ind-item .ind-trash{ background:transparent; border:none; color:var(--text-dim); cursor:pointer; font-size:11px; padding:0 2px; line-height:1; }
