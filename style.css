@@ -44,28 +44,32 @@
   .stat-value.up{ color:var(--up); } .stat-value.down{ color:var(--down); }
 
   /* SENTIMENT GAUGE CARD (Tâm lý Binance) */
-  .sentiment-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 22px 20px; margin-top:14px; max-width:340px; }
+  .sentiment-row{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+  .sentiment-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 22px 20px; }
   .sentiment-head{ display:flex; align-items:center; justify-content:space-between; }
   .sentiment-title{ font-family:'Sora', sans-serif; font-weight:700; font-size:16px; color:#c7cdda; }
   .sentiment-chevron{ color:var(--text-dim); font-size:20px; line-height:1; }
   .sentiment-gauge{ margin-top:6px; }
   .sentiment-gauge svg{ width:100%; height:auto; display:block; }
 
-  /* ===== Gauge Long/Short: animation mượt, glow, pulse ===== */
-  .ls-svg{ opacity:0; transform:scale(.96); animation:lsFadeIn .5s cubic-bezier(.2,.8,.2,1) forwards; }
-  @keyframes lsFadeIn{ to{ opacity:1; transform:scale(1); } }
-  #ls-dot{ transition:fill .3s ease; }
-  #ls-dot-glow{ animation:lsBreathe 1.8s ease-in-out infinite; transform-origin:center; transform-box:fill-box; }
-  @keyframes lsBreathe{ 0%,100%{ opacity:.25; transform:scale(1); } 50%{ opacity:.5; transform:scale(1.35); } }
-  #ls-percent, #ls-label{ transition:fill .3s ease; }
-  .ls-footer{ display:flex; align-items:center; justify-content:center; gap:10px; margin-top:2px; font-size:11.5px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; flex-wrap:wrap; }
-  .ls-footer b{ color:#c7cdda; }
-  .ls-delta{ font-weight:700; padding:2px 8px; border-radius:20px; font-size:11px; letter-spacing:.2px; }
-  .ls-delta.up{ color:#2ecc71; background:#2ecc7122; }
-  .ls-delta.down{ color:#e0455c; background:#e0455c22; }
-  .ls-delta.flat{ color:var(--text-dim); background:transparent; }
-  .ls-delta.pulse{ animation:lsPulse .5s ease-out; }
-  @keyframes lsPulse{ 0%{ transform:scale(1.28); } 100%{ transform:scale(1); } }
+  /* ===== Gauge (Long/Short & Fear-Greed dùng chung): animation mượt, glow, pulse ===== */
+  .sg-svg{ opacity:0; transform:scale(.96); animation:sgFadeIn .5s cubic-bezier(.2,.8,.2,1) forwards; }
+  @keyframes sgFadeIn{ to{ opacity:1; transform:scale(1); } }
+  .sg-dot{ transition:fill .3s ease; }
+  .sg-dot-glow{ animation:sgBreathe 1.8s ease-in-out infinite; transform-origin:center; transform-box:fill-box; }
+  @keyframes sgBreathe{ 0%,100%{ opacity:.25; transform:scale(1); } 50%{ opacity:.5; transform:scale(1.35); } }
+  .sg-percent, .sg-label{ transition:fill .3s ease; }
+  .sg-footer{ display:flex; align-items:center; justify-content:center; gap:10px; margin-top:2px; font-size:11.5px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; flex-wrap:wrap; text-align:center; }
+  .sg-footer b{ color:#c7cdda; }
+  .sg-delta{ font-weight:700; padding:2px 8px; border-radius:20px; font-size:11px; letter-spacing:.2px; }
+  .sg-delta.up{ color:#2ecc71; background:#2ecc7122; }
+  .sg-delta.down{ color:#e0455c; background:#e0455c22; }
+  .sg-delta.flat{ color:var(--text-dim); background:transparent; }
+  .sg-delta.pulse{ animation:sgPulse .5s ease-out; }
+  @keyframes sgPulse{ 0%{ transform:scale(1.28); } 100%{ transform:scale(1); } }
+  .sg-live-badge{ display:inline-flex; align-items:center; gap:4px; background:var(--up-dim); border:1px solid #14cc8a40; color:var(--up); font-weight:700; font-size:9.5px; letter-spacing:.6px; padding:2px 7px; border-radius:20px; margin-right:6px; }
+  .sg-live-badge .live-dot{ width:5px; height:5px; }
+  @media (max-width:760px){ .sentiment-row{ grid-template-columns:1fr; } }
   .sentiment-card{ transition:box-shadow .3s ease; }
   .sentiment-card:hover{ box-shadow:0 0 0 1px var(--border), 0 8px 24px rgba(0,0,0,.25); }
 
