@@ -28,6 +28,7 @@
   let currentWebSocket = null; let currentTickerWS = null; let whaleWS = null;
   let reconnectTimeout = null; let syncInterval = null;
   let isLiveSignalPreview = false; let liveAnalysisTimer = null;
+  let lastIndicatorUpdateTs = 0; // throttle tính lại chỉ báo khi giá chạy liên tục — tránh giật máy, đặc biệt trên mobile
   // Phân tích tức thời trên nến đang chạy (chưa đóng) — throttle 3s để tránh giật máy khi tick dồn dập
   function scheduleLiveAIAnalysis() {
     isLiveSignalPreview = true;
@@ -289,6 +290,103 @@
     }
   }, 1000);
   setTimeout(fetchFearGreedIndex, 1300);
+
+  // =========================================================
+  // TIN TỨC NÓNG THỊ TRƯỜNG — tự động lấy tin mới liên tục
+  // =========================================================
+  const seenNewsIds = new Set();
+  let newsFirstLoad = true;
+  function newsRelTime(unixSec) {
+    const diffSec = Math.max(0, Math.floor(Date.now() / 1000) - unixSec);
+    if (diffSec < 60) return 'Vừa xong';
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + ' phút trước';
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + ' giờ trước';
+    return Math.floor(diffSec / 86400) + ' ngày trước';
+  }
+  let lastNewsItems = [];
+  function renderNewsList(items, isRefreshOnly) {
+    const listEl = document.getElementById('news-list');
+    if (!listEl) return;
+    if (!items.length) { listEl.innerHTML = '<div class="news-empty">Chưa có tin tức.</div>'; return; }
+    listEl.innerHTML = items.map(it => {
+      const isNew = !isRefreshOnly && !newsFirstLoad && !seenNewsIds.has(it.id);
+      return `<a class="news-item${isNew ? ' is-new' : ''}" href="${it.url}" target="_blank" rel="noopener noreferrer">
+        ${it.img ? `<img class="news-thumb" src="${it.img}" loading="lazy" onerror="this.style.display='none'">` : ''}
+        <div class="news-body">
+          <div class="news-title">${it.title}</div>
+          <div class="news-meta"><span class="news-source">${it.source}</span><span>·</span><span>${newsRelTime(it.time)}</span></div>
+        </div>
+      </a>`;
+    }).join('');
+    if (!isRefreshOnly) { items.forEach(it => seenNewsIds.add(it.id)); newsFirstLoad = false; }
+  }
+  async function tryFetchJson(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+  // Nhiều nguồn dự phòng: nếu nguồn 1 bị chặn CORS/rate-limit trên môi trường host (VD GitHub Pages),
+  // tự động rơi (fallback) sang nguồn kế tiếp thay vì phụ thuộc vào đúng 1 API duy nhất.
+  const NEWS_SOURCES = [
+    { type: 'cryptocompare', url: 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest' },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20' },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20' }
+  ];
+  function parseSourceItems(type, json) {
+    if (type === 'cryptocompare') {
+      if (!json || !Array.isArray(json.Data)) return [];
+      return json.Data.slice(0, 20).map(a => ({
+        id: String(a.id || a.guid || a.url), title: a.title, url: a.url,
+        source: (a.source_info && a.source_info.name) || a.source || 'Nguồn tin',
+        time: a.published_on,
+        img: a.imageurl && a.imageurl.startsWith('http') ? a.imageurl : ''
+      }));
+    }
+    if (type === 'rss2json') {
+      if (!json || json.status !== 'ok' || !Array.isArray(json.items)) return [];
+      return json.items.slice(0, 20).map(a => {
+        const ts = Date.parse((a.pubDate || '').replace(' ', 'T') + 'Z');
+        return {
+          id: String(a.guid || a.link),
+          title: (a.title || '').replace(/<[^>]*>/g, ''),
+          url: a.link,
+          source: (json.feed && json.feed.title) || 'Nguồn tin',
+          time: isNaN(ts) ? Math.floor(Date.now() / 1000) : Math.floor(ts / 1000),
+          img: a.thumbnail || ''
+        };
+      });
+    }
+    return [];
+  }
+  async function fetchMarketNews() {
+    let lastError = null;
+    for (const src of NEWS_SOURCES) {
+      try {
+        const json = await tryFetchJson(src.url);
+        const items = parseSourceItems(src.type, json);
+        if (items.length) {
+          lastNewsItems = items;
+          renderNewsList(items, false);
+          const upd = document.getElementById('news-updated'); if (upd) upd.innerText = 'Cập nhật: ' + new Date().toLocaleTimeString('vi-VN');
+          const badge = document.getElementById('news-live-badge'); if (badge) badge.innerHTML = '<span class="news-live-dot"><span class="live-dot"></span>LIVE</span>';
+          return; // Thành công, không cần thử nguồn tiếp theo
+        }
+      } catch (error) { lastError = error; console.warn('Nguồn tin tức lỗi, thử nguồn kế tiếp:', src.url, error); }
+    }
+    console.error("Không lấy được tin tức từ mọi nguồn:", lastError);
+    const listEl = document.getElementById('news-list');
+    if (listEl && newsFirstLoad) {
+      const hint = location.protocol === 'file:'
+        ? 'Trang đang mở trực tiếp từ file (file://) — hãy chạy qua Live Server / một host thật (kể cả GitHub Pages) rồi thử lại.'
+        : 'Có thể do mất mạng, tất cả nguồn tin tạm nghẽn, hoặc trình chặn quảng cáo (adblock) đang chặn các domain tin tức.';
+      listEl.innerHTML = `<div class="news-empty">Không tải được tin tức lúc này.<br><span style="font-size:11px;opacity:.85;">${hint}</span><br><button id="news-retry-btn" type="button" style="margin-top:8px;background:var(--surface-alt);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;">Thử lại</button></div>`;
+      const btn = document.getElementById('news-retry-btn'); if (btn) btn.onclick = fetchMarketNews;
+    }
+  }
+  setInterval(fetchMarketNews, 60000); // Tin tức mới liên tục — kiểm tra lại mỗi 60 giây
+  setTimeout(fetchMarketNews, 1500);
+  // Làm mới lại nhãn "X phút trước" mỗi 30s dù chưa có tin mới, để đồng hồ luôn đúng (không tính là tin mới)
+  setInterval(() => { if (lastNewsItems.length) renderNewsList(lastNewsItems, true); }, 30000);
 
   // Cài đặt Modal Events
   function getWhaleThreshold(symbol) {
@@ -1349,7 +1447,14 @@
         const lastIdx = candlesData.length - 1;
         if (lastIdx >= 0 && candlesData[lastIdx].time === time){ candlesData[lastIdx] = liveCandle; volumesData[lastIdx] = liveVolume; } 
         else { candlesData.push(liveCandle); volumesData.push(liveVolume); }
-        updateAllIndicators();
+        // Tính lại chỉ báo tối đa mỗi 400ms khi nến đang chạy (throttle) — nến vừa đóng thì luôn tính đủ ngay lập tức.
+        // Trước đây gọi lại TOÀN BỘ chỉ báo trên TOÀN BỘ lịch sử nến mỗi khi có 1 tick giá (nhiều lần/giây) —
+        // đây là nguyên nhân chính gây giật/lag, đặc biệt trên điện thoại có CPU yếu hơn máy tính.
+        const nowTs = Date.now();
+        if (kline.x === true || nowTs - lastIndicatorUpdateTs > 400) {
+          lastIndicatorUpdateTs = nowTs;
+          updateAllIndicators();
+        }
         const upd = document.getElementById('stat-updated'); if (upd) upd.innerText = new Date().toLocaleTimeString('vi-VN');
         if (kline.x === true) { isLiveSignalPreview = false; runAIAnalysis(); } else { scheduleLiveAIAnalysis(); }
       };
