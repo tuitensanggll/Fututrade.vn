@@ -102,150 +102,193 @@
   };
 
   // =========================================================
-  // BỘ LỌC TÂM LÝ BINANCE — Gauge Long/Short có animation mượt
+  // ENGINE GAUGE DÙNG CHUNG (Long/Short & Sợ hãi-Tham lam) — animation mượt, glow, pulse
   // =========================================================
-  let binanceLSRatio = 1.0;
-  let lsPrevScore = null;      // điểm % Long của lần cập nhật trước (để tính mũi tên tăng/giảm)
-  let lsAnimScore = 50;        // điểm đang hiển thị tại thời điểm hiện tại của animation (tween)
-  let lsAnimFrameId = null;
-  async function fetchBinanceSentiment(symbol = currentSymbol) {
-    try {
-      const response = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
-      const data = await response.json();
-      if (data && data.length > 0) {
-        binanceLSRatio = parseFloat(data[0].longShortRatio);
-        updateBinanceSentimentUI();
+  function sgHexToRgb(hex) { const h = hex.replace('#', ''); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; }
+  function sgLerpColor(hexA, hexB, t) {
+    const a = sgHexToRgb(hexA), b = sgHexToRgb(hexB);
+    const r = Math.round(a[0] + (b[0]-a[0])*t), g = Math.round(a[1] + (b[1]-a[1])*t), bl = Math.round(a[2] + (b[2]-a[2])*t);
+    return `rgb(${r},${g},${bl})`;
+  }
+  function sgEaseOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  const SG_CX = 150, SG_CY = 158, SG_R = 112, SG_SW = 22;
+  function sgPt(s, r) { const deg = 180 - (s / 100) * 180; const rad = deg * Math.PI / 180; return { x: SG_CX + r * Math.cos(rad), y: SG_CY - r * Math.sin(rad) }; }
+  function sgArcPath(r, s1, s2) { const a = sgPt(s1, r), b = sgPt(s2, r); return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`; }
+
+  // Tạo 1 widget gauge độc lập, gắn vào 1 container. opts: segments, colorFn, labelFn, leftLabel, rightLabel, formatCenter, subHtml(meta), unit
+  function createGaugeWidget(mountEl, opts) {
+    if (!mountEl) return { update(){} };
+    let animScore = 50, animFrameId = null, prevScore = null;
+    function buildShell() {
+      const gap = 1.6; let arcs = '';
+      opts.segments.forEach(([s1, s2, color]) => {
+        const a = sgPt(s1 + gap / 2, SG_R), b = sgPt(s2 - gap / 2, SG_R);
+        arcs += `<path d="M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${SG_R} ${SG_R} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}" stroke="${color}" stroke-width="${SG_SW}" fill="none" stroke-linecap="round" opacity="0.32"/>`;
+      });
+      const gid = 'sgglow' + Math.random().toString(36).slice(2, 8);
+      mountEl.innerHTML = `
+        <svg viewBox="0 0 300 192" class="sg-svg">
+          <defs>
+            <filter id="${gid}" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="5" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <g>${arcs}</g>
+          <path class="sg-highlight" d="" stroke="${opts.colorFn(50)}" stroke-width="${SG_SW}" fill="none" stroke-linecap="round"/>
+          <circle class="sg-dot-glow" cx="150" cy="46" r="15" fill="${opts.colorFn(50)}" opacity="0.35" filter="url(#${gid})"/>
+          <circle class="sg-dot" cx="150" cy="46" r="9" fill="#ffffff" stroke="#0a0d13" stroke-width="3"/>
+          <text x="30" y="184" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="11" fill="#7c8598" letter-spacing="1">${opts.leftLabel}</text>
+          <text x="270" y="184" text-anchor="end" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="11" fill="#7c8598" letter-spacing="1">${opts.rightLabel}</text>
+          <text class="sg-percent" x="150" y="148" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-weight="800" font-size="42" fill="${opts.colorFn(50)}">--</text>
+          <text class="sg-label" x="150" y="174" text-anchor="middle" font-family="'Inter', sans-serif" font-weight="600" font-size="15" fill="#e7eaf0">Đang tải...</text>
+        </svg>
+        <div class="sg-footer">
+          <span class="sg-sub"></span>
+          <span class="sg-delta"></span>
+        </div>`;
+      mountEl.classList.add('sg-ready');
+    }
+    function animateTo(targetScore, meta) {
+      if (!mountEl.classList.contains('sg-ready')) buildShell();
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      const startScore = animScore;
+      const startColor = opts.colorFn(startScore);
+      const endColor = opts.colorFn(targetScore);
+      const duration = 900;
+      const t0 = performance.now();
+      const highlightEl = mountEl.querySelector('.sg-highlight');
+      const dotEl = mountEl.querySelector('.sg-dot');
+      const glowEl = mountEl.querySelector('.sg-dot-glow');
+      const percentEl = mountEl.querySelector('.sg-percent');
+      const labelEl = mountEl.querySelector('.sg-label');
+      if (!highlightEl || !dotEl || !percentEl || !labelEl) return;
+
+      function frame(now) {
+        const t = Math.min(1, (now - t0) / duration);
+        const eased = sgEaseOutCubic(t);
+        const score = startScore + (targetScore - startScore) * eased;
+        animScore = score;
+        const color = sgLerpColor(startColor, endColor, eased);
+
+        const hs1 = Math.max(0, score - 6), hs2 = Math.min(100, score + 6);
+        highlightEl.setAttribute('d', sgArcPath(SG_R, hs1, hs2));
+        highlightEl.setAttribute('stroke', color);
+
+        const p = sgPt(score, SG_R);
+        dotEl.setAttribute('cx', p.x.toFixed(2)); dotEl.setAttribute('cy', p.y.toFixed(2));
+        glowEl.setAttribute('cx', p.x.toFixed(2)); glowEl.setAttribute('cy', p.y.toFixed(2)); glowEl.setAttribute('fill', color);
+
+        percentEl.textContent = opts.formatCenter ? opts.formatCenter(score) : Math.round(score);
+        percentEl.setAttribute('fill', color);
+        labelEl.textContent = opts.labelFn(score);
+
+        if (t < 1) { animFrameId = requestAnimationFrame(frame); }
+        else { animFrameId = null; }
       }
-    } catch (error) { console.error("Không lấy được L/S:", error); }
+      animFrameId = requestAnimationFrame(frame);
+
+      const subEl = mountEl.querySelector('.sg-sub');
+      if (subEl && opts.subHtml) subEl.innerHTML = opts.subHtml(meta || {});
+
+      const deltaEl = mountEl.querySelector('.sg-delta');
+      if (deltaEl) {
+        if (prevScore !== null) {
+          const diff = targetScore - prevScore; const unit = opts.unit || '';
+          if (Math.abs(diff) < 0.05) { deltaEl.textContent = '• Không đổi'; deltaEl.className = 'sg-delta flat'; }
+          else if (diff > 0) { deltaEl.textContent = `▲ +${diff.toFixed(1)}${unit}`; deltaEl.className = 'sg-delta up'; }
+          else { deltaEl.textContent = `▼ ${diff.toFixed(1)}${unit}`; deltaEl.className = 'sg-delta down'; }
+          deltaEl.classList.remove('pulse'); void deltaEl.offsetWidth; deltaEl.classList.add('pulse');
+        }
+        prevScore = targetScore;
+      }
+    }
+    return { update: animateTo };
   }
 
+  // ===== Widget 1: Tỷ lệ Long/Short (Binance Futures) =====
+  let binanceLSRatio = 1.0;
+  let liveBuyPressureScore = null; // % áp lực mua tính từ dòng lệnh khớp thật (tick-by-tick), cập nhật liên tục
+  const lsGaugeWidget = createGaugeWidget(document.getElementById('sentiment-gauge'), {
+    segments: [[0, 20, '#c23a4f'], [20, 40, '#d9765a'], [40, 60, '#c99257'], [60, 80, '#5fae52'], [80, 100, '#219150']],
+    colorFn: score => { if (score < 20) return '#e0455c'; if (score < 40) return '#e07a5f'; if (score < 60) return '#d9a066'; if (score < 80) return '#7fc95f'; return '#2ecc71'; },
+    labelFn: score => { if (score < 20) return 'Short áp đảo'; if (score < 40) return 'Nghiêng Short'; if (score < 60) return 'Cân bằng'; if (score < 80) return 'Nghiêng Long'; return 'Long áp đảo'; },
+    leftLabel: 'SHORT', rightLabel: 'LONG', unit: '%',
+    formatCenter: s => Math.round(s) + '%',
+    subHtml: meta => `${meta.live ? '<span class="sg-live-badge"><span class="live-dot"></span>LIVE</span>' : ''}Áp lực mua 60s: <b>${meta.liveScore !== undefined && meta.liveScore !== null ? meta.liveScore.toFixed(1) + '%' : '--'}</b> · TK L/S (Binance 5p): <b>${(meta.ratio || 0).toFixed(2)}</b>`
+  });
   // Quy đổi tỉ lệ Long/Short thành % tài khoản Long — công thức toán học trực tiếp
   // từ số liệu thật của Binance (ratio = longAccount / shortAccount), không suy đoán.
   function ratioToScore(ratio) {
     if (!ratio || ratio <= 0) return 50;
     return (ratio / (1 + ratio)) * 100; // % Long chính xác theo công thức của Binance
   }
-  function scoreToColor(score) {
-    if (score < 20) return '#e0455c'; if (score < 40) return '#e07a5f';
-    if (score < 60) return '#d9a066'; if (score < 80) return '#7fc95f';
-    return '#2ecc71';
+  // Kim của gauge được dẫn động bởi ÁP LỰC MUA/BÁN THỰC TẾ, tính liên tục từ dòng lệnh khớp (aggTrade) —
+  // xem hàm updateLiveBuyPressure() trong initWebSockets(). Tỷ lệ tài khoản Long/Short (REST, 5 phút/lần
+  // theo đúng chu kỳ dữ liệu gốc của Binance) chỉ đóng vai trò thông tin bổ sung hiển thị bên dưới.
+  function refreshGaugeDisplay() {
+    const score = liveBuyPressureScore !== null ? liveBuyPressureScore : ratioToScore(binanceLSRatio);
+    lsGaugeWidget.update(score, { ratio: binanceLSRatio, live: liveBuyPressureScore !== null, liveScore: liveBuyPressureScore });
   }
-  function scoreToLabel(score) {
-    if (score < 20) return 'Short áp đảo'; if (score < 40) return 'Nghiêng Short';
-    if (score < 60) return 'Cân bằng'; if (score < 80) return 'Nghiêng Long';
-    return 'Long áp đảo';
+  async function fetchBinanceSentiment(symbol = currentSymbol) {
+    try {
+      const response = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        binanceLSRatio = parseFloat(data[0].longShortRatio);
+        refreshGaugeDisplay();
+      }
+    } catch (error) { console.error("Không lấy được L/S:", error); }
   }
-  function lsHexToRgb(hex) { const h = hex.replace('#', ''); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; }
-  function lsLerpColor(hexA, hexB, t) {
-    const a = lsHexToRgb(hexA), b = lsHexToRgb(hexB);
-    const r = Math.round(a[0] + (b[0]-a[0])*t), g = Math.round(a[1] + (b[1]-a[1])*t), bl = Math.round(a[2] + (b[2]-a[2])*t);
-    return `rgb(${r},${g},${bl})`;
-  }
-  function lsEaseOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-  function lsPt(cx, cy, r, s) { const deg = 180 - (s / 100) * 180; const rad = deg * Math.PI / 180; return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) }; }
-  function lsArcPath(cx, cy, r, s1, s2) { const a = lsPt(cx, cy, r, s1), b = lsPt(cx, cy, r, s2); return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`; }
-
-  const LS_CX = 150, LS_CY = 158, LS_R = 112, LS_SW = 22;
-
-  // Dựng khung SVG tĩnh (nền cung màu, mốc 0/50/100) — chỉ chạy MỘT LẦN, không re-render mỗi lần có dữ liệu mới
-  function buildGaugeShell() {
-    const segments = [[0, 20, '#c23a4f'], [20, 40, '#d9765a'], [40, 60, '#c99257'], [60, 80, '#5fae52'], [80, 100, '#219150']];
-    const gap = 1.6;
-    let arcs = '';
-    segments.forEach(([s1, s2, color]) => {
-      const a = lsPt(LS_CX, LS_CY, LS_R, s1 + gap / 2), b = lsPt(LS_CX, LS_CY, LS_R, s2 - gap / 2);
-      arcs += `<path d="M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${LS_R} ${LS_R} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}" stroke="${color}" stroke-width="${LS_SW}" fill="none" stroke-linecap="round" opacity="0.32"/>`;
-    });
-    const svg = `
-      <svg viewBox="0 0 300 192" class="ls-svg">
-        <defs>
-          <filter id="ls-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="5" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        <g class="ls-track">${arcs}</g>
-        <path id="ls-highlight" d="" stroke="#7fc95f" stroke-width="${LS_SW}" fill="none" stroke-linecap="round"/>
-        <circle id="ls-dot-glow" cx="150" cy="46" r="15" fill="#7fc95f" opacity="0.35" filter="url(#ls-glow)"/>
-        <circle id="ls-dot" cx="150" cy="46" r="9" fill="#ffffff" stroke="#0a0d13" stroke-width="3"/>
-        <text x="30" y="184" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="11" fill="#7c8598" letter-spacing="1">SHORT</text>
-        <text x="270" y="184" text-anchor="end" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="11" fill="#7c8598" letter-spacing="1">LONG</text>
-        <text id="ls-percent" x="150" y="148" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-weight="800" font-size="42" fill="#7fc95f">50%</text>
-        <text id="ls-label" x="150" y="174" text-anchor="middle" font-family="'Inter', sans-serif" font-weight="600" font-size="15" fill="#e7eaf0">Cân bằng</text>
-      </svg>
-      <div class="ls-footer">
-        <span>Tỷ lệ L/S thực tế: <b id="ls-ratio">1.00</b> (Long:Short)</span>
-        <span id="ls-delta" class="ls-delta"></span>
-      </div>`;
-    const gaugeEl = document.getElementById('sentiment-gauge');
-    gaugeEl.innerHTML = svg;
-    gaugeEl.classList.add('ls-ready');
-  }
-
-  // Animate mượt từ điểm hiện tại -> điểm mới trong ~900ms (ease-out), không đập lại toàn bộ DOM
-  function animateGaugeTo(targetScore) {
-    if (lsAnimFrameId) cancelAnimationFrame(lsAnimFrameId);
-    const startScore = lsAnimScore;
-    const startColor = scoreToColor(startScore);
-    const endColor = scoreToColor(targetScore);
-    const duration = 900;
-    const t0 = performance.now();
-    const highlightEl = document.getElementById('ls-highlight');
-    const dotEl = document.getElementById('ls-dot');
-    const glowEl = document.getElementById('ls-dot-glow');
-    const percentEl = document.getElementById('ls-percent');
-    const labelEl = document.getElementById('ls-label');
-    if (!highlightEl || !dotEl || !percentEl || !labelEl) return;
-
-    function frame(now) {
-      const t = Math.min(1, (now - t0) / duration);
-      const eased = lsEaseOutCubic(t);
-      const score = startScore + (targetScore - startScore) * eased;
-      lsAnimScore = score;
-      const color = lsLerpColor(startColor, endColor, eased);
-
-      const hs1 = Math.max(0, score - 6), hs2 = Math.min(100, score + 6);
-      highlightEl.setAttribute('d', lsArcPath(LS_CX, LS_CY, LS_R, hs1, hs2));
-      highlightEl.setAttribute('stroke', color);
-
-      const p = lsPt(LS_CX, LS_CY, LS_R, score);
-      dotEl.setAttribute('cx', p.x.toFixed(2)); dotEl.setAttribute('cy', p.y.toFixed(2));
-      glowEl.setAttribute('cx', p.x.toFixed(2)); glowEl.setAttribute('cy', p.y.toFixed(2)); glowEl.setAttribute('fill', color);
-
-      percentEl.textContent = Math.round(score) + '%';
-      percentEl.setAttribute('fill', color);
-      labelEl.textContent = scoreToLabel(score);
-
-      if (t < 1) { lsAnimFrameId = requestAnimationFrame(frame); }
-      else { lsAnimFrameId = null; }
-    }
-    lsAnimFrameId = requestAnimationFrame(frame);
-  }
-
-  function updateBinanceSentimentUI() {
-    const gaugeEl = document.getElementById('sentiment-gauge');
-    if (!gaugeEl) return;
-    if (!gaugeEl.classList.contains('ls-ready')) buildGaugeShell();
-    const score = ratioToScore(binanceLSRatio);
-
-    animateGaugeTo(score);
-
-    const ratioEl = document.getElementById('ls-ratio');
-    if (ratioEl) ratioEl.textContent = binanceLSRatio.toFixed(2);
-
-    const deltaEl = document.getElementById('ls-delta');
-    if (deltaEl && lsPrevScore !== null) {
-      const diff = score - lsPrevScore;
-      if (Math.abs(diff) < 0.05) { deltaEl.textContent = '• Không đổi'; deltaEl.className = 'ls-delta flat'; }
-      else if (diff > 0) { deltaEl.textContent = `▲ +${diff.toFixed(1)}% Long`; deltaEl.className = 'ls-delta up'; }
-      else { deltaEl.textContent = `▼ ${diff.toFixed(1)}% Long`; deltaEl.className = 'ls-delta down'; }
-      // Ripple nhẹ báo hiệu vừa cập nhật dữ liệu mới
-      deltaEl.classList.remove('pulse'); void deltaEl.offsetWidth; deltaEl.classList.add('pulse');
-    }
-    lsPrevScore = score;
-  }
-  setInterval(() => fetchBinanceSentiment(currentSymbol), 30000); 
+  // Chu kỳ dữ liệu gốc của Binance cho chỉ số này là 5 phút — gọi lại mỗi 20s chỉ để bắt kịp sớm nhất
+  // ngay khi Binance công bố số mới, không có ý nghĩa gọi nhanh hơn vì bản thân số liệu chưa đổi.
+  setInterval(() => fetchBinanceSentiment(currentSymbol), 20000);
   setTimeout(() => fetchBinanceSentiment(currentSymbol), 1000);
+
+  // ===== Widget 2: Chỉ số Sợ hãi & Tham lam (Tâm lý thị trường chung — chuẩn phân loại như Binance) =====
+  // Thang điểm 0-100: 0-24 Sợ hãi tột độ, 25-44 Sợ hãi, 45-55 Trung lập, 56-75 Tham lam, 76-100 Tham lam tột độ.
+  const fngGaugeWidget = createGaugeWidget(document.getElementById('fng-gauge'), {
+    segments: [[0, 25, '#c23a4f'], [25, 45, '#d9765a'], [45, 55, '#c99257'], [55, 75, '#5fae52'], [75, 100, '#219150']],
+    colorFn: score => { if (score < 25) return '#e0455c'; if (score < 45) return '#e07a5f'; if (score < 55) return '#d9a066'; if (score < 75) return '#7fc95f'; return '#2ecc71'; },
+    labelFn: score => { if (score < 25) return 'Sợ hãi tột độ'; if (score < 45) return 'Sợ hãi'; if (score < 55) return 'Trung lập'; if (score < 75) return 'Tham lam'; return 'Tham lam tột độ'; },
+    leftLabel: 'SỢ HÃI', rightLabel: 'THAM LAM', unit: ' đ',
+    formatCenter: s => Math.round(s),
+    subHtml: meta => `Cập nhật lúc <b>${meta.updated || '--'}</b>${meta.countdown ? ' · Kỳ tiếp theo sau <b>' + meta.countdown + '</b>' : ''}`
+  });
+  let fngPrevValue = null;
+  let fngNextUpdateTs = null; // mốc thời gian (ms) nguồn dữ liệu sẽ công bố số mới, dùng để đếm ngược live
+  function fmtCountdown(ms) {
+    if (ms == null || ms < 0) return '--';
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600), m = Math.floor((totalSec % 3600) / 60), s = totalSec % 60;
+    return (h > 0 ? h + 'h' : '') + m + 'p' + s + 's';
+  }
+  async function fetchFearGreedIndex() {
+    try {
+      const res = await fetch('https://api.alternative.me/fng/?limit=1&format=json');
+      const json = await res.json();
+      if (json && json.data && json.data.length) {
+        const val = parseFloat(json.data[0].value);
+        const secUntilUpdate = parseInt(json.data[0].time_until_update || '0', 10);
+        fngPrevValue = val;
+        fngNextUpdateTs = Date.now() + secUntilUpdate * 1000;
+        fngGaugeWidget.update(val, { updated: new Date().toLocaleTimeString('vi-VN'), countdown: fmtCountdown(secUntilUpdate * 1000) });
+      }
+    } catch (error) { console.error("Không lấy được Chỉ số Sợ hãi & Tham lam:", error); }
+  }
+  // Nguồn dữ liệu Sợ hãi & Tham lam chỉ công bố số mới ~1 lần/ngày (đúng như trên Binance thật) — không thể
+  // "liên tục" theo giây vì bản chất chỉ số này là tổng hợp theo ngày. Bù lại, đồng hồ đếm ngược tới kỳ cập
+  // nhật tiếp theo chạy LIVE mỗi giây thật (tính từ time_until_update do nguồn trả về), và ta poll lại đúng
+  // lúc kỳ mới tới để lấy số mới sớm nhất có thể, thay vì đợi cố định.
+  setInterval(() => {
+    if (fngNextUpdateTs !== null) {
+      const remain = fngNextUpdateTs - Date.now();
+      if (remain <= 0) { fetchFearGreedIndex(); return; }
+      const subEl = document.querySelector('#fng-gauge .sg-sub');
+      if (subEl && fngPrevValue !== null) subEl.innerHTML = `Cập nhật gần nhất: <b>${fngPrevValue}</b> điểm · Kỳ tiếp theo sau <b>${fmtCountdown(remain)}</b>`;
+    }
+  }, 1000);
+  setTimeout(fetchFearGreedIndex, 1300);
 
   // Cài đặt Modal Events
   function getWhaleThreshold(symbol) {
@@ -1312,11 +1355,26 @@
       };
       
       whaleWS = new WebSocket(`wss://stream.binance.com:9443/ws/${currentSymbol.toLowerCase()}@aggTrade`);
+      // Cửa sổ trượt 60 giây các lệnh khớp thật (mua/bán) — nguồn cho gauge Long/Short "sống" theo từng nhịp giao dịch
+      let liveTradeBuf = []; let lastLiveGaugeTs = 0;
+      const LIVE_WINDOW_MS = 60000;
+      liveBuyPressureScore = null; // reset khi đổi mã coin
       whaleWS.onmessage = (event) => {
         const d = JSON.parse(event.data);
         const p = parseFloat(d.p); const q = parseFloat(d.q); const isBuy = !d.m; const usd = p * q;
         const dynamicThreshold = getWhaleThreshold(currentSymbol);
         if (usd >= dynamicThreshold) showWhaleAlert(isBuy, usd, p, currentSymbol);
+
+        const now = Date.now();
+        liveTradeBuf.push({ t: now, usd, isBuy });
+        while (liveTradeBuf.length && now - liveTradeBuf[0].t > LIVE_WINDOW_MS) liveTradeBuf.shift();
+        if (now - lastLiveGaugeTs > 1000 && liveTradeBuf.length >= 5) {
+          lastLiveGaugeTs = now;
+          let buyUsd = 0, totalUsd = 0;
+          liveTradeBuf.forEach(tr => { totalUsd += tr.usd; if (tr.isBuy) buyUsd += tr.usd; });
+          liveBuyPressureScore = totalUsd > 0 ? (buyUsd / totalUsd) * 100 : 50;
+          refreshGaugeDisplay();
+        }
       };
 
       const handleWSDisconnect = () => {
