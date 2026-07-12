@@ -176,7 +176,6 @@
         </svg>
         <div class="sg-footer">
           <span class="sg-sub"></span>
-          <span class="sg-delta"></span>
         </div>`;
       mountEl.classList.add('sg-ready');
     }
