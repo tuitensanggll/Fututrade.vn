@@ -8,7 +8,37 @@
     } catch (e) {}
   })();
 
-  // 1. LOCAL STORAGE & GLOBAL VARS
+  // =========================================================
+  // BỘ ICON LINEAL DÙNG CHUNG (thay toàn bộ icon emoji cũ bằng icon nét mảnh đồng bộ)
+  // =========================================================
+  const ICONS = {
+    eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.4 12S5 5.2 12 5.2 22.6 12 22.6 12 19 18.8 12 18.8 1.4 12 1.4 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    eyeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.3A11 11 0 0112 5.2c7 0 10.6 6.8 10.6 6.8a13.9 13.9 0 01-3.1 4M6.2 6.6C3.4 8.5 1.4 12 1.4 12S5 18.8 12 18.8a10.7 10.7 0 004.1-.8"/><path d="M9.9 9.9a3 3 0 004.2 4.2"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M4.5 15.5H4A1.5 1.5 0 012.5 14V4A1.5 1.5 0 014 2.5h10A1.5 1.5 0 0115.5 4v.5"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="1.8"/><path d="M7.5 10.5V7a4.5 4.5 0 019 0v3.5"/></svg>',
+    unlock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="1.8"/><path d="M7.5 10.5V7a4.5 4.5 0 018.5-2.2"/></svg>',
+    x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4.8A1.8 1.8 0 0110.8 3h2.4A1.8 1.8 0 0115 4.8V7"/><path d="M6 7l1 12.2A2 2 0 009 21h6a2 2 0 002-1.8L18 7"/><path d="M10 11v6M14 11v6"/></svg>',
+    gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+    camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3.2L8.7 5.8h6.6L16.8 8H20a1 1 0 011 1v9.5a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.6"/></svg>',
+    barChart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+    cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>',
+    grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
+    chevronRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+    target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg>',
+    trendUp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-9"/><path d="M15 6h6v6"/></svg>',
+    trendDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 6 4-4 8 9"/><path d="M15 18h6v-6"/></svg>',
+    pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 015 5c0 3.5-5 11-5 11S7 10.5 7 7a5 5 0 015-5z"/><circle cx="12" cy="7" r="1.6"/></svg>',
+    checkCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.6 2.6L16 9.4"/></svg>',
+    whale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 13c0-3.3 3-5.9 6.9-5.9 4 0 7.4 1.8 9.8 4.2.7.8 1.9 1 2.8.4-.4 1.6-1.7 2.6-3.1 2.7.5.9 1.6 1.4 2.9 1.3-1 1.4-2.7 2-4.4 1.8-2 1.9-5.1 3.1-8.3 2.8-4-.4-6.6-3.4-6.6-7.3z"/><circle cx="6.7" cy="10.4" r="0.7" fill="currentColor" stroke="none"/><path d="M9 17.2c-1.5.6-3.1.5-4.4-.4"/></svg>',
+    dot: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
+    trendFlat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 12l5-5M3 12l5 5M21 12l-5-5M21 12l-5 5"/></svg>',
+    alertTriangle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2L22 20.5H2z"/><path d="M12 9.5v5.2"/><circle cx="12" cy="17.8" r="0.9" fill="currentColor" stroke="none"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.6c0 4.6-3.1 8.4-7.5 9.4-4.4-1-7.5-4.8-7.5-9.4V6z"/><path d="M9 12l2.2 2.2L15.3 10"/></svg>',
+  };
+  function icon(name, cls) { return `<span class="ico${cls ? ' ' + cls : ''}">${ICONS[name] || ''}</span>`; }
+
+
   let currentSymbol = localStorage.getItem('ok_symbol') || 'BTCUSDT';
   let currentInterval = localStorage.getItem('ok_interval') || '4h';
   let aiEnabled = localStorage.getItem('ok_ai') !== 'false';
@@ -196,9 +226,9 @@
       if (deltaEl) {
         if (prevScore !== null) {
           const diff = targetScore - prevScore; const unit = opts.unit || '';
-          if (Math.abs(diff) < 0.05) { deltaEl.textContent = '• Không đổi'; deltaEl.className = 'sg-delta flat'; }
-          else if (diff > 0) { deltaEl.textContent = `▲ +${diff.toFixed(1)}${unit}`; deltaEl.className = 'sg-delta up'; }
-          else { deltaEl.textContent = `▼ ${diff.toFixed(1)}${unit}`; deltaEl.className = 'sg-delta down'; }
+          if (Math.abs(diff) < 0.05) { deltaEl.innerHTML = icon('dot', 'ico-inline') + ' Không đổi'; deltaEl.className = 'sg-delta flat'; }
+          else if (diff > 0) { deltaEl.innerHTML = icon('trendUp', 'ico-inline') + ` +${diff.toFixed(1)}${unit}`; deltaEl.className = 'sg-delta up'; }
+          else { deltaEl.innerHTML = icon('trendDown', 'ico-inline') + ` ${diff.toFixed(1)}${unit}`; deltaEl.className = 'sg-delta down'; }
           deltaEl.classList.remove('pulse'); void deltaEl.offsetWidth; deltaEl.classList.add('pulse');
         }
         prevScore = targetScore;
@@ -500,7 +530,7 @@
       }
     }
   };
-  const chartPrice = LightweightCharts.createChart(document.getElementById('chart-price'), { ...commonOptions, timeScale: { timeVisible: true, visible: false } });
+  const chartPrice = LightweightCharts.createChart(document.getElementById('chart-price'), { ...commonOptions, timeScale: { timeVisible: true, visible: false, rightOffset: 12 } });
   const candleSeries = chartPrice.addCandlestickSeries({ upColor: currentUpColor, downColor: currentDownColor, borderVisible: false, wickUpColor: currentUpColor, wickDownColor: currentDownColor });
   const volumePane = document.getElementById('chart-volume');
   const chartVolume = LightweightCharts.createChart(volumePane, {
@@ -979,7 +1009,7 @@
     const wrapper = document.getElementById('chart-wrapper');
     const paneEl = document.createElement('div');
     paneEl.className = 'sub-pane'; paneEl.id = 'pane-' + id; paneEl.dataset.pane = id;
-    paneEl.innerHTML = `<div class="pane-header"><span class="pane-drag" title="Kéo để đổi vị trí">⠿</span><span class="pane-title">${INDICATOR_CATALOG[homeType].label}</span><button class="pane-remove" type="button" title="Xóa toàn bộ pane">🗑</button></div><div id="chart-${id}" style="position:relative; height:130px;"><div class="chart-legend" id="legend-${id}"></div></div>`;
+    paneEl.innerHTML = `<div class="pane-header"><span class="pane-drag" title="Kéo để đổi vị trí">${icon('grip')}</span><span class="pane-title">${INDICATOR_CATALOG[homeType].label}</span><button class="pane-remove" type="button" title="Xóa toàn bộ pane">${icon('trash')}</button></div><div id="chart-${id}" style="position:relative; height:130px;"><div class="chart-legend" id="legend-${id}"></div></div>`;
     wrapper.appendChild(paneEl);
     const chart = LightweightCharts.createChart(document.getElementById('chart-' + id), {
       ...commonOptions,
@@ -1079,7 +1109,7 @@
       <option value="dashed" ${ind.style === 'dashed' ? 'selected' : ''}>Đứt nét</option>
       <option value="dotted" ${ind.style === 'dotted' ? 'selected' : ''}>Chấm chấm</option>
     </select></div>`;
-    indPopover.innerHTML = `<div class="ind-pop-title">${labelFor(ind)}<button class="ind-pop-close" type="button">&times;</button></div>${rows}<div class="ind-pop-footer"><button class="ind-pop-reset" id="ip-delete" type="button">Xóa chỉ báo</button><button class="ind-pop-save" id="ip-save" type="button">Lưu</button></div>`;
+    indPopover.innerHTML = `<div class="ind-pop-title">${labelFor(ind)}<button class="ind-pop-close" type="button">${icon('x')}</button></div>${rows}<div class="ind-pop-footer"><button class="ind-pop-reset" id="ip-delete" type="button">Xóa chỉ báo</button><button class="ind-pop-save" id="ip-save" type="button">Lưu</button></div>`;
     const rect = anchorEl.getBoundingClientRect();
     indPopover.style.top = (rect.bottom + window.scrollY + 6) + 'px';
     indPopover.style.left = Math.max(8, Math.min(rect.left + window.scrollX, window.innerWidth - 260)) + 'px';
@@ -1099,7 +1129,7 @@
     indPopover.querySelector('.ind-pop-close').onclick = closeIndicatorPopover;
   }
   document.addEventListener('click', e => {
-    if (indPopover.classList.contains('show') && !indPopover.contains(e.target) && !e.target.classList.contains('ind-gear')) closeIndicatorPopover();
+    if (indPopover.classList.contains('show') && !indPopover.contains(e.target) && !e.target.closest('.ind-gear')) closeIndicatorPopover();
   });
   function toggleIndicatorVisibility(id) {
     const ind = indicators.find(i => i.id === id); if (!ind) return;
@@ -1122,7 +1152,7 @@
       item.className = 'ind-item' + (ind.visible ? '' : ' ind-hidden');
       item.draggable = true; item.dataset.key = ind.id;
       const groupsHtml = subSeriesMeta(ind).map((m, idx) => `<span class="ind-group"><span class="ind-dot" style="background:${m.color}"></span><span class="ind-label">${m.label}</span><span class="ind-value" data-key="${ind.id}_${idx}" style="color:${m.color}"></span></span>`).join('');
-      item.innerHTML = `<span class="ind-drag">⋮⋮</span>${groupsHtml}<button class="ind-eye" data-key="${ind.id}" type="button" title="Ẩn/hiện">${ind.visible ? '👁' : '🚫'}</button><button class="ind-gear" data-key="${ind.id}" type="button" title="Cài đặt">⚙</button><button class="ind-trash" data-key="${ind.id}" type="button" title="Xóa">🗑</button>`;
+      item.innerHTML = `<span class="ind-drag">${icon('grip')}</span>${groupsHtml}<button class="ind-eye" data-key="${ind.id}" type="button" title="Ẩn/hiện">${ind.visible ? icon('eye') : icon('eyeOff')}</button><button class="ind-gear" data-key="${ind.id}" type="button" title="Cài đặt">${icon('gear')}</button><button class="ind-trash" data-key="${ind.id}" type="button" title="Xóa">${icon('trash')}</button>`;
       container.appendChild(item);
     });
   }
@@ -1149,9 +1179,10 @@
   function initLegendEvents(containerId, paneId) {
     const container = document.getElementById(containerId); if (!container) return;
     container.addEventListener('click', e => {
-      if (e.target.classList.contains('ind-eye')) toggleIndicatorVisibility(e.target.dataset.key);
-      else if (e.target.classList.contains('ind-gear')) openIndicatorPopover(e.target.dataset.key, e.target);
-      else if (e.target.classList.contains('ind-trash')) { if (confirm('Xóa chỉ báo này khỏi biểu đồ?')) deleteIndicator(e.target.dataset.key); }
+      const eyeBtn = e.target.closest('.ind-eye'), gearBtn = e.target.closest('.ind-gear'), trashBtn = e.target.closest('.ind-trash');
+      if (eyeBtn) toggleIndicatorVisibility(eyeBtn.dataset.key);
+      else if (gearBtn) openIndicatorPopover(gearBtn.dataset.key, gearBtn);
+      else if (trashBtn) { if (confirm('Xóa chỉ báo này khỏi biểu đồ?')) deleteIndicator(trashBtn.dataset.key); }
     });
     container.addEventListener('dragstart', e => { const item = e.target.closest('.ind-item'); if (!item) return; draggingIndicatorId = item.dataset.key; item.classList.add('dragging'); });
     container.addEventListener('dragend', e => { const item = e.target.closest('.ind-item'); if (item) item.classList.remove('dragging'); draggingIndicatorId = null; });
@@ -1174,7 +1205,7 @@
     Object.keys(cats).forEach(cat => {
       html += `<div class="im-cat">${cats[cat]}</div>`;
       Object.keys(INDICATOR_CATALOG).filter(k => INDICATOR_CATALOG[k].category === cat).forEach(k => {
-        html += `<div class="im-item" data-type="${k}"><span>${INDICATOR_CATALOG[k].label}</span><span class="im-add">＋</span></div>`;
+        html += `<div class="im-item" data-type="${k}"><span>${INDICATOR_CATALOG[k].label}</span><span class="im-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></div>`;
       });
     });
     indicatorMenu.innerHTML = html;
@@ -1362,10 +1393,10 @@
     <button type="button" class="dot-swatch" data-act="color" title="Đổi màu"><span class="dot-swatch-inner"></span></button>
     <input type="color" class="dot-color-input">
     <button type="button" data-act="width" title="Độ dày nét">2px</button>
-    <button type="button" data-act="eye" title="Ẩn/hiện bản vẽ này">👁</button>
-    <button type="button" data-act="dup" title="Nhân bản">⧉</button>
-    <button type="button" data-act="lock" title="Khoá bản vẽ này">🔓</button>
-    <button type="button" class="danger" data-act="del" title="Xoá bản vẽ này">✕</button>
+    <button type="button" data-act="eye" title="Ẩn/hiện bản vẽ này">${icon('eye')}</button>
+    <button type="button" data-act="dup" title="Nhân bản">${icon('copy')}</button>
+    <button type="button" data-act="lock" title="Khoá bản vẽ này">${icon('unlock')}</button>
+    <button type="button" class="danger" data-act="del" title="Xoá bản vẽ này">${icon('x')}</button>
   `;
   document.getElementById('chart-price').appendChild(objToolbar);
   const objColorInput = objToolbar.querySelector('.dot-color-input');
@@ -1392,9 +1423,9 @@
     if (!d) return;
     objSwatchDot.style.background = d.color;
     objWidthBtn.textContent = (d.width || 2) + 'px';
-    objEyeBtn.textContent = d.hidden ? '🙈' : '👁';
+    objEyeBtn.innerHTML = d.hidden ? icon('eyeOff') : icon('eye');
     objEyeBtn.classList.toggle('toggle-on', !!d.hidden);
-    objLockBtn.textContent = d.locked ? '🔒' : '🔓';
+    objLockBtn.innerHTML = d.locked ? icon('lock') : icon('unlock');
     objLockBtn.classList.toggle('toggle-on', !!d.locked);
   }
 
@@ -1440,7 +1471,44 @@
   });
   objColorInput.addEventListener('change', () => { saveDrawings(); });
 
-  function xOf(time) { return chartPrice.timeScale().timeToCoordinate(time); }
+  // ===== Quy đổi thời gian <-> toạ độ dựa trên "chỉ số logic" (logical index) =====
+  // API gốc timeToCoordinate/coordinateToTime của thư viện chỉ hoạt động chính xác trong vùng có nến thật.
+  // Dùng logical index (coordinateToLogical/logicalToCoordinate) thì có thể ngoại suy ra cả vùng trống bên phải
+  // (sau cây nến mới nhất) và bên trái, nhờ đó vẽ được ở BẤT KỲ đâu trong khung chart, không bị giới hạn.
+  const INTERVAL_SEC = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+  function intervalSeconds() { return INTERVAL_SEC[currentInterval] || 14400; }
+  function logicalToTime(logical) {
+    if (!candlesData.length || logical == null) return null;
+    const n = candlesData.length, isec = intervalSeconds();
+    if (logical <= 0) return candlesData[0].time + logical * isec;
+    if (logical >= n - 1) return candlesData[n - 1].time + (logical - (n - 1)) * isec;
+    const i0 = Math.floor(logical), i1 = Math.min(i0 + 1, n - 1), frac = logical - i0;
+    return candlesData[i0].time + (candlesData[i1].time - candlesData[i0].time) * frac;
+  }
+  function timeToLogical(time) {
+    if (!candlesData.length || time == null) return null;
+    const n = candlesData.length, isec = intervalSeconds();
+    if (time <= candlesData[0].time) return (time - candlesData[0].time) / isec;
+    if (time >= candlesData[n - 1].time) return (n - 1) + (time - candlesData[n - 1].time) / isec;
+    let lo = 0, hi = n - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (candlesData[mid].time < time) lo = mid + 1; else hi = mid; }
+    const i1 = lo, i0 = Math.max(0, lo - 1);
+    if (candlesData[i1].time === candlesData[i0].time) return i0;
+    return i0 + (time - candlesData[i0].time) / (candlesData[i1].time - candlesData[i0].time);
+  }
+  // Toạ độ x (pixel) -> thời gian, hoạt động cả ở vùng trống chưa có nến (bên phải/trái biểu đồ)
+  function xToTime(x) {
+    const logical = chartPrice.timeScale().coordinateToLogical(x);
+    return logical == null ? null : logicalToTime(logical);
+  }
+
+  function xOf(time) {
+    const direct = chartPrice.timeScale().timeToCoordinate(time);
+    if (direct !== null) return direct;
+    const logical = timeToLogical(time);
+    if (logical == null) return null;
+    return chartPrice.timeScale().logicalToCoordinate(logical);
+  }
   function yOf(price) { return candleSeries.priceToCoordinate(price); }
   function xy(pt) { const x = xOf(pt.time), y = yOf(pt.price); return (x === null || y === null) ? null : { x, y }; }
   function lineRaw(x1, y1, x2, y2) { dctx.beginPath(); dctx.moveTo(x1, y1); dctx.lineTo(x2, y2); dctx.stroke(); }
@@ -1531,7 +1599,14 @@
     }
     if (d.locked) {
       const anchorPt = (d.points || [])[0]; const p = anchorPt ? xy(anchorPt) : null;
-      if (p) { dctx.font = '11px sans-serif'; dctx.fillStyle = d.color; dctx.textBaseline = 'bottom'; dctx.textAlign = 'left'; dctx.fillText('🔒', p.x + 6, p.y - 6); }
+      if (p) {
+        const lx = p.x + 8, ly = p.y - 18;
+        dctx.save();
+        dctx.strokeStyle = d.color; dctx.lineWidth = 1.4; dctx.lineCap = 'round'; dctx.lineJoin = 'round';
+        dctx.beginPath(); dctx.roundRect ? dctx.roundRect(lx, ly + 4, 11, 8, 1.5) : dctx.rect(lx, ly + 4, 11, 8); dctx.stroke();
+        dctx.beginPath(); dctx.arc(lx + 5.5, ly + 4, 3.6, Math.PI, 0); dctx.stroke();
+        dctx.restore();
+      }
     }
     dctx.restore();
   }
@@ -1621,9 +1696,10 @@
 
   // ===== Xử lý click / di chuột trên biểu đồ giá =====
   chartPrice.subscribeCrosshairMove(param => {
-    if (!param || !param.point || param.time === undefined) { previewPoint = null; return; }
+    if (!param || !param.point) { previewPoint = null; return; }
+    const time = param.time !== undefined ? param.time : xToTime(param.point.x);
     const price = candleSeries.coordinateToPrice(param.point.y);
-    previewPoint = (price == null) ? null : snapPoint(param.time, price);
+    previewPoint = (price == null || time == null) ? null : snapPoint(time, price);
     if (currentTool === 'cursor' && selectedId && !dragDrawing) {
       const d = getSelectedDrawing();
       const host = document.getElementById('chart-price');
@@ -1632,9 +1708,10 @@
     }
   });
   chartPrice.subscribeClick(param => {
-    if (!param || !param.point || param.time === undefined) return;
+    if (!param || !param.point) return;
+    const time = param.time !== undefined ? param.time : xToTime(param.point.x); if (time == null) return;
     const rawPrice = candleSeries.coordinateToPrice(param.point.y); if (rawPrice == null) return;
-    const pt = snapPoint(param.time, rawPrice);
+    const pt = snapPoint(time, rawPrice);
 
     if (currentTool === 'cursor') { const hit = hitTest(param.point.x, param.point.y); selectedId = hit ? hit.id : null; return; }
     if (currentTool === 'eraser') {
@@ -1684,7 +1761,7 @@
   // ===== Kéo-thả để DI CHUYỂN hoặc CHỈNH SỬA bản vẽ đã chọn (giống các sàn lớn) =====
   // Kéo vào thân bản vẽ -> di chuyển toàn bộ. Kéo vào 1 chấm neo -> chỉnh lại điểm đó. Bị khoá thì không kéo được.
   function coordToTimePrice(x, y) {
-    return { time: chartPrice.timeScale().coordinateToTime(x), price: candleSeries.coordinateToPrice(y) };
+    return { time: xToTime(x), price: candleSeries.coordinateToPrice(y) };
   }
   let dragDrawing = null, dragPointIndex = -1, dragOriginalPoints = null, dragStartTP = null, dragStartXY = null, isDragging = false;
   const chartPriceEl = document.getElementById('chart-price');
@@ -1761,14 +1838,14 @@
         if (sigList && sigList.length) {
            sigList.forEach(signal => {
              html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed ${signal.color};">`;
-             html += `<div style="color:${signal.color}; font-weight:bold; font-size: 13px;">✨ ${signal.label}</div>`;
+             html += `<div style="color:${signal.color}; font-weight:bold; font-size: 13px; display:flex; align-items:center;">${icon(signalIconName(signal), 'ico-inline')}${signal.label}</div>`;
              html += `<div style="color:#a9b1c2; font-size:11.5px; margin-top:4px; max-width: 240px; white-space: normal; line-height: 1.45; font-family:'JetBrains Mono', monospace;">`;
              if (signal.entry) {
-                html += `<span style="color:var(--up)">● Entry: ${fmt(signal.entry)}</span><br>`;
-                html += `<span style="color:var(--gold)">● Target: ${fmt(signal.target)}</span><br>`;
-                html += `<span style="color:var(--down)">● SL(Động): ${fmt(signal.sl)}</span><br>`;
+                html += `<span style="color:var(--up)">${icon('dot','ico-inline')}Entry: ${fmt(signal.entry)}</span><br>`;
+                html += `<span style="color:var(--gold)">${icon('dot','ico-inline')}Target: ${fmt(signal.target)}</span><br>`;
+                html += `<span style="color:var(--down)">${icon('dot','ico-inline')}SL(Động): ${fmt(signal.sl)}</span><br>`;
              }
-             html += `<div style="margin-top:6px; color:#8b93a7; font-family:'Inter', sans-serif; font-weight:500; font-size:11px; line-height:1.55;">📌 ${getProNote(signal)}</div>`;
+             html += `<div style="margin-top:6px; color:#8b93a7; font-family:'Inter', sans-serif; font-weight:500; font-size:11px; line-height:1.55; display:flex; gap:5px; align-items:flex-start;">${icon('pin', 'ico-inline')}<span>${getProNote(signal)}</span></div>`;
              html += `</div></div>`;
            });
         }
@@ -1797,7 +1874,7 @@
     recent.forEach(log => {
       const row = document.createElement('div'); row.className = 'signal-row';
       const tone = log.isBuy ? 'up' : 'down'; const label = log.isBuy ? 'CÁ MẬP MUA' : 'CÁ MẬP BÁN';
-      row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge ${tone}">${label}</div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${new Date(log.time).toLocaleTimeString('vi-VN')}</span><span class="signal-price" style="color:var(--${tone}); font-weight:700">${fmtVol(log.usd)} USDT</span></div><div class="signal-desc">Coin: <b>${log.symbol}</b> ở mức giá <b>${fmt(log.price)}</b></div></div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${log.time}, true)" title="Xóa">✖</button></div>`;
+      row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge ${tone}">${label}</div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${new Date(log.time).toLocaleTimeString('vi-VN')}</span><span class="signal-price" style="color:var(--${tone}); font-weight:700">${fmtVol(log.usd)} USDT</span></div><div class="signal-desc">Coin: <b>${log.symbol}</b> ở mức giá <b>${fmt(log.price)}</b></div></div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${log.time}, true)" title="Xóa">${icon('x')}</button></div>`;
       list.appendChild(row);
     });
   }
@@ -1806,7 +1883,7 @@
   function showWhaleAlert(isBuy, usdAmount, price, symbol) {
     const container = document.getElementById('toast-container'); const toast = document.createElement('div');
     toast.className = `whale-toast ${isBuy ? 'buy' : 'sell'}`;
-    toast.innerHTML = `<div class="whale-icon">${isBuy ? '🐳 🚀' : '🐳 🩸'}</div><div class="whale-content"><div class="whale-title">${isBuy ? 'CÁ MẬP MUA' : 'CÁ MẬP BÁN'}</div><div class="whale-desc">${fmtVol(usdAmount)} USDT ở giá ${fmt(price)}</div><div class="whale-time">${new Date().toLocaleTimeString('vi-VN')}</div></div>`;
+    toast.innerHTML = `<div class="whale-icon">${isBuy ? icon('whale') + icon('trendUp') : icon('whale') + icon('trendDown')}</div><div class="whale-content"><div class="whale-title">${isBuy ? 'CÁ MẬP MUA' : 'CÁ MẬP BÁN'}</div><div class="whale-desc">${fmtVol(usdAmount)} USDT ở giá ${fmt(price)}</div><div class="whale-time">${new Date().toLocaleTimeString('vi-VN')}</div></div>`;
     container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show'));
     setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 6000);
     whaleLogs.push({ time: Date.now(), isBuy, usd: usdAmount, price, symbol });
@@ -1838,13 +1915,20 @@
   function findSwings(candles, left, right){ const highs = [], lows = []; for (let i = left; i < candles.length - right; i++){ let isHigh = true, isLow = true; for (let j = i - left; j <= i + right; j++){ if (j === i) continue; if (candles[j].high >= candles[i].high) isHigh = false; if (candles[j].low <= candles[i].low) isLow = false; } if (isHigh) highs.push(candles[i].high); if (isLow) lows.push(candles[i].low); } return { highs, lows }; }
   function structureSignal(candles, windowSize, left, right){ const slice = candles.slice(Math.max(0, candles.length - windowSize)); if (slice.length < left + right + 4) return 0; const { highs, lows } = findSwings(slice, left, right); if (highs.length < 2 || lows.length < 2) return 0; const hh = highs[highs.length - 1] > highs[highs.length - 2]; const hl = lows[lows.length - 1] > lows[lows.length - 2]; const lh = highs[highs.length - 1] < highs[highs.length - 2]; const ll = lows[lows.length - 1] < lows[lows.length - 2]; if (hh && hl) return 1; if (lh && ll) return -1; return 0; }
   function computeHorizonTrend(candles, fastP, slowP, slopeLookback, structWindow, fracL, fracR){ if (candles.length < slowP + 5) return { trend: 0, emaSig: 0, structSig: 0, insufficient: true }; const closes = candles.map(c => c.close); const emaFast = computeEMA(closes, fastP); const emaSlow = computeEMA(closes, slowP); const lastClose = closes[closes.length - 1]; const lastFast = emaFast[emaFast.length - 1]; const lastSlow = emaSlow[emaSlow.length - 1]; const slope = emaSlopeSignal(emaFast, slopeLookback); let emaSig = 0; if (lastFast > lastSlow && lastClose > lastFast && slope >= 0) emaSig = 1; else if (lastFast < lastSlow && lastClose < lastFast && slope <= 0) emaSig = -1; const structSig = structureSignal(candles, structWindow, fracL, fracR); let trend = 0; if (emaSig === 1 && structSig === 1) trend = 1; else if (emaSig === -1 && structSig === -1) trend = -1; else if (emaSig !== 0 && structSig === 0) trend = emaSig * 0.5; else trend = 0; return { trend, emaSig, structSig, insufficient: false }; }
-  function renderTrendCard(elId, result, horizonName){ const card = document.getElementById(elId); card.className = "trend-card"; if (result.insufficient){ card.classList.add('side'); card.querySelector('.trend-arrow').innerText = '—'; card.querySelector('.trend-label').innerText = 'Chưa đủ dữ liệu'; card.querySelector('.trend-desc').innerHTML = 'Cần thêm dữ liệu lịch sử.'; return; } const agree = result.emaSig !== 0 && result.emaSig === result.structSig; let cls, arrow, label, reason; if (result.trend === 1){ cls = 'up'; arrow = '▲'; label = 'TĂNG'; reason = agree ? `Đồng thuận cấu trúc & EMA.` : `Chỉ EMA tăng.`; } else if (result.trend === -1){ cls = 'down'; arrow = '▼'; label = 'GIẢM'; reason = agree ? `Đồng thuận cấu trúc & EMA.` : `Chỉ EMA giảm.`; } else { cls = 'side'; arrow = '↔'; label = 'ĐI NGANG'; reason = 'Tín hiệu giằng co, chưa rõ ràng.'; } card.classList.add(cls); card.querySelector('.trend-arrow').innerText = arrow; card.querySelector('.trend-label').innerText = label; card.querySelector('.trend-desc').innerHTML = reason + (agree ? '<span class="trend-confirm agree">Đồng thuận</span>' : ''); }
+  function renderTrendCard(elId, result, horizonName){ const card = document.getElementById(elId); card.className = "trend-card"; if (result.insufficient){ card.classList.add('side'); card.querySelector('.trend-arrow').innerText = '—'; card.querySelector('.trend-label').innerText = 'Chưa đủ dữ liệu'; card.querySelector('.trend-desc').innerHTML = 'Cần thêm dữ liệu lịch sử.'; return; } const agree = result.emaSig !== 0 && result.emaSig === result.structSig; let cls, arrowIcon, label, reason; if (result.trend === 1){ cls = 'up'; arrowIcon = 'trendUp'; label = 'TĂNG'; reason = agree ? `Đồng thuận cấu trúc & EMA.` : `Chỉ EMA tăng.`; } else if (result.trend === -1){ cls = 'down'; arrowIcon = 'trendDown'; label = 'GIẢM'; reason = agree ? `Đồng thuận cấu trúc & EMA.` : `Chỉ EMA giảm.`; } else { cls = 'side'; arrowIcon = 'trendFlat'; label = 'ĐI NGANG'; reason = 'Tín hiệu giằng co, chưa rõ ràng.'; } card.classList.add(cls); card.querySelector('.trend-arrow').innerHTML = icon(arrowIcon); card.querySelector('.trend-label').innerText = label; card.querySelector('.trend-desc').innerHTML = reason + (agree ? '<span class="trend-confirm agree">Đồng thuận</span>' : ''); }
   function runTrendAnalysis(){ if (candlesData.length < 30) return; renderTrendCard('trend-short', computeHorizonTrend(candlesData, 9, 21, 5, 40, 2, 2), 'Ngắn hạn'); renderTrendCard('trend-medium', computeHorizonTrend(candlesData, 21, 50, 10, 120, 3, 3), 'Trung hạn'); renderTrendCard('trend-long', computeHorizonTrend(candlesData, 50, 200, 20, candlesData.length, 5, 5), 'Dài hạn'); }
 
   // =========================================================
   // ĐỘNG CƠ AI ĐÃ FIX: TRẢ LẠI HIỂN THỊ VOL SPIKE & CLIMAX
   // =========================================================
   // Ghi chú chuyên nghiệp chi tiết cho từng loại tín hiệu — hiện khi di chuột vào chỉ báo
+  function signalIconName(s) {
+    if (s.type === 'trend_long') return 'trendUp';
+    if (s.type === 'trend_short') return 'trendDown';
+    if (s.type === 'climax_buy' || s.type === 'climax_sell') return 'alertTriangle';
+    if (s.type === 'fng_block') return 'shield';
+    return 'target';
+  }
   function getProNote(s) {
     switch (s.type) {
       case 'trend_long':
@@ -1867,7 +1951,7 @@
   function runAIAnalysis(){
     updateAllIndicators();
     const liveStatusEl = document.getElementById('ai-live-status');
-    if (liveStatusEl) liveStatusEl.innerHTML = isLiveSignalPreview ? '🔴 LIVE · nến chưa đóng, tín hiệu có thể đổi' : '✅ Đã xác nhận nến đóng';
+    if (liveStatusEl) liveStatusEl.innerHTML = isLiveSignalPreview ? '<span class="live-dot" style="display:inline-block; margin-right:4px; vertical-align:middle;"></span>LIVE · nến chưa đóng, tín hiệu có thể đổi' : icon('checkCircle', 'ico-inline') + ' Đã xác nhận nến đóng';
     runTrendAnalysis(); signalsMap.clear();
     const aiList = document.getElementById('ai-signal-list');
     if(!aiEnabled){ candleSeries.setMarkers([]); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; return;}
@@ -1923,12 +2007,12 @@
         lastLongIdx = i;
         const stopLoss = c.close - stopDistance;
         const targetPrice = c.close + stopDistance * rr;
-        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG 🚀', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. R:R 1:${rr}. Giá điều chỉnh về hỗ trợ và bật nảy.`, color: currentUpColor });
+        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. R:R 1:${rr}. Giá điều chỉnh về hỗ trợ và bật nảy.`, color: currentUpColor });
       } else if (isShortEntry) {
         lastShortIdx = i;
         const stopLoss = c.close + stopDistance;
         const targetPrice = c.close - stopDistance * rr;
-        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT 🩸', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. R:R 1:${rr}. Giá gãy hỗ trợ.`, color: currentDownColor });
+        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. R:R 1:${rr}. Giá gãy hỗ trợ.`, color: currentDownColor });
       }
 
       // 2. KHÔI PHỤC TÍN HIỆU VOLUME ĐỘT BIẾN / CLIMAX
@@ -1939,9 +2023,9 @@
         const lowerWick = Math.min(c.open, c.close) - c.low;
         
         if (c.close > c.open && upperWick > body * 1.5) {
-           addSignal({ time: c.time, type: 'climax_buy', label: 'BUYING CLIMAX ⚠️', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)}. Bị xả mạnh.`, color: '#ffc93c' });
+           addSignal({ time: c.time, type: 'climax_buy', label: 'BUYING CLIMAX', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)}. Bị xả mạnh.`, color: '#ffc93c' });
         } else if (c.close < c.open && lowerWick > body * 1.5) {
-           addSignal({ time: c.time, type: 'climax_sell', label: 'SELLING CLIMAX ⚠️', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)}. Lực bắt đáy mạnh.`, color: '#ffc93c' });
+           addSignal({ time: c.time, type: 'climax_sell', label: 'SELLING CLIMAX', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)}. Lực bắt đáy mạnh.`, color: '#ffc93c' });
         } else if (c.close > c.open && !isLongEntry) {
            // Vẽ lại chấm tròn cho Volume Bùng nổ (Mua)
            addSignal({ time: c.time, type: 'vol_spike', label: 'BÙNG NỔ MUA', tone: 'up', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} lần trung bình.`, color: currentUpColor });
@@ -1951,7 +2035,7 @@
         }
       }
 
-      if (isFilteredBySentiment) { addSignal({ time: c.time, type: 'fng_block', label: 'AI CHẶN LỆNH 🛡️', tone: 'warn', price: c.close, desc: filterReason, color: '#6b7280' }); }
+      if (isFilteredBySentiment) { addSignal({ time: c.time, type: 'fng_block', label: 'AI CHẶN LỆNH', tone: 'warn', price: c.close, desc: filterReason, color: '#6b7280' }); }
     }
     
     const visibleSignals = signals.filter(s => s.time >= aiIgnoreBeforeTime && !deletedLogTimes.has(s.time));
@@ -1961,9 +2045,9 @@
     visibleSignals.forEach(s => {
       if (s.type === 'trend_long') markers.push({ time: s.time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: 'LONG' });
       else if (s.type === 'trend_short') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'arrowDown', text: 'SHORT' });
-      else if (s.type === 'fng_block') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'square', text: '🛑' });
-      else if (s.type === 'climax_buy') markers.push({ time: s.time, position: 'aboveBar', color: '#ffc93c', shape: 'arrowDown', text: 'B.CLX ⚠️' });
-      else if (s.type === 'climax_sell') markers.push({ time: s.time, position: 'belowBar', color: '#ffc93c', shape: 'arrowUp', text: 'S.CLX ⚠️' });
+      else if (s.type === 'fng_block') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'square', text: '' });
+      else if (s.type === 'climax_buy') markers.push({ time: s.time, position: 'aboveBar', color: '#ffc93c', shape: 'arrowDown', text: 'B.CLX' });
+      else if (s.type === 'climax_sell') markers.push({ time: s.time, position: 'belowBar', color: '#ffc93c', shape: 'arrowUp', text: 'S.CLX' });
       else if (s.type === 'vol_spike') markers.push({ time: s.time, position: (s.tone === 'up' ? 'belowBar' : 'aboveBar'), color: s.color, shape: 'circle', text: '' }); // Dấu chấm hiển thị lại
     });
     markers.sort((a,b) => a.time - b.time);
@@ -1974,12 +2058,12 @@
     
     visibleSignals.slice(-15).reverse().forEach(s => {
       const row = document.createElement('div'); row.className = 'signal-row';
-      const proNoteHtml = `<div class="signal-desc" style="color:#8b93a7; font-size:11px; margin-top:5px; line-height:1.5;">📌 ${getProNote(s)}</div>`;
+      const proNoteHtml = `<div class="signal-desc" style="color:#8b93a7; font-size:11px; margin-top:5px; line-height:1.5; display:flex; gap:5px; align-items:flex-start;">${icon('pin', 'ico-inline')}<span>${getProNote(s)}</span></div>`;
       let descHtml = s.entry 
-        ? `<div class="signal-desc" style="margin-top:5px; font-family:'JetBrains Mono', monospace; font-size:12px; font-weight:600;"><span style="color:var(--up)">🟢 Entry: ${fmt(s.entry)}</span> | <span style="color:var(--gold)">🎯 Target: ${fmt(s.target)}</span> | <span style="color:var(--down)">🔴 SL: ${fmt(s.sl)}</span></div><div class="signal-desc" style="color:var(--text-dim); font-size:11.5px; margin-top:3px;">${s.desc}</div>${proNoteHtml}` 
+        ? `<div class="signal-desc" style="margin-top:5px; font-family:'JetBrains Mono', monospace; font-size:12px; font-weight:600;"><span style="color:var(--up)">${icon('dot','ico-inline')}Entry: ${fmt(s.entry)}</span> | <span style="color:var(--gold)">${icon('dot','ico-inline')}Target: ${fmt(s.target)}</span> | <span style="color:var(--down)">${icon('dot','ico-inline')}SL: ${fmt(s.sl)}</span></div><div class="signal-desc" style="color:var(--text-dim); font-size:11.5px; margin-top:3px;">${s.desc}</div>${proNoteHtml}` 
         : `<div class="signal-desc" style="color:var(--text-dim); font-size:12.5px; margin-top:5px;">${s.desc}</div>${proNoteHtml}`;
 
-      row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge ${s.tone}">${s.label}</div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtTime(s.time)}</span><span class="signal-price" style="font-weight:700;">${s.entry ? 'Vùng:' : 'Giá:'} ${fmt(s.price)} USDT</span></div>${descHtml}</div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${s.time})" title="Xóa">✖</button></div>`;
+      row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge ${s.tone}">${icon(signalIconName(s))}${s.label}</div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtTime(s.time)}</span><span class="signal-price" style="font-weight:700;">${s.entry ? 'Vùng:' : 'Giá:'} ${fmt(s.price)} USDT</span></div>${descHtml}</div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${s.time})" title="Xóa">${icon('x')}</button></div>`;
       aiList.appendChild(row);
     });
   }
