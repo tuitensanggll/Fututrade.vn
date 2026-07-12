@@ -504,7 +504,7 @@
   updateCSSVariables(currentUpColor, currentDownColor);
 
   const commonOptions = {
-    layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#7c8598' },
+    layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#7c8598', attributionLogo: false },
     grid: { vertLines: { color: '#171c27' }, horzLines: { color: '#171c27' } },
     rightPriceScale: { minimumWidth: 90, alignLabels: true, scaleMargins: { top: 0.15, bottom: 0.15 } },
     crosshair: {
@@ -530,7 +530,8 @@
     }
   };
   const chartPrice = LightweightCharts.createChart(document.getElementById('chart-price'), { ...commonOptions, timeScale: { timeVisible: true, visible: false, rightOffset: 12 } });
-  const candleSeries = chartPrice.addCandlestickSeries({ upColor: currentUpColor, downColor: currentDownColor, borderVisible: false, wickUpColor: currentUpColor, wickDownColor: currentDownColor });
+  const candleSeries = chartPrice.addSeries(LightweightCharts.CandlestickSeries, { upColor: currentUpColor, downColor: currentDownColor, borderVisible: false, wickUpColor: currentUpColor, wickDownColor: currentDownColor });
+  const candleSeriesMarkers = LightweightCharts.createSeriesMarkers(candleSeries, []);
   const volumePane = document.getElementById('chart-volume');
   const chartVolume = LightweightCharts.createChart(volumePane, {
     ...commonOptions,
@@ -539,7 +540,7 @@
     leftPriceScale: { visible: false, borderVisible: false, minWidth: 0 },
     rightPriceScale: { visible: true, borderVisible: false, alignLabels: true, minimumWidth: 90, scaleMargins: { top: 0.15, bottom: 0.15 } }
   });
-  const volumeSeries = chartVolume.addHistogramSeries({
+  const volumeSeries = chartVolume.addSeries(LightweightCharts.HistogramSeries, {
     priceFormat: {
       type: 'custom',
       formatter: price => {
@@ -883,7 +884,7 @@
     const lineStyle = LINE_STYLE_MAP[ind.style] ?? 0;
     // lastValueVisible: false — tránh chồng ô giá trị lên trục phải khi nhiều đường (EMA/RSI...) có giá trị gần nhau.
     // Giá trị hiện tại của từng chỉ báo được hiển thị trong legend góc trái (giống Binance/TradingView), không phải trên trục.
-    const mkLine = (color, width, extra) => chart.addLineSeries(Object.assign({ color, lineWidth: width, lineStyle, priceScaleId: scaleId, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, visible: ind.visible }, extra || {}));
+    const mkLine = (color, width, extra) => chart.addSeries(LightweightCharts.LineSeries, Object.assign({ color, lineWidth: width, lineStyle, priceScaleId: scaleId, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, visible: ind.visible }, extra || {}));
     let series = []; const guides = [];
     if (ind.type === 'sma' || ind.type === 'ema' || ind.type === 'volma') {
       series = [mkLine(ind.color, ind.width)];
@@ -897,7 +898,7 @@
       guides.push(main.createPriceLine({ price: 50, color: '#7c859855', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '' }));
     } else if (ind.type === 'macd') {
       const macdLine = mkLine(ind.color, ind.width); const signalLine = mkLine(ind.color2, ind.width2 || 1);
-      const hist = chart.addHistogramSeries({ priceScaleId: scaleId, priceLineVisible: false, lastValueVisible: false, visible: ind.visible });
+      const hist = chart.addSeries(LightweightCharts.HistogramSeries, { priceScaleId: scaleId, priceLineVisible: false, lastValueVisible: false, visible: ind.visible });
       series = [macdLine, signalLine, hist];
     } else if (ind.type === 'stoch') {
       const k = mkLine(ind.color, ind.width); const d = mkLine(ind.color2, ind.width2 || 1);
@@ -1921,13 +1922,6 @@
   // ĐỘNG CƠ AI ĐÃ FIX: TRẢ LẠI HIỂN THỊ VOL SPIKE & CLIMAX
   // =========================================================
   // Ghi chú chuyên nghiệp chi tiết cho từng loại tín hiệu — hiện khi di chuột vào chỉ báo
-  function signalIconName(s) {
-    if (s.type === 'trend_long') return 'trendUp';
-    if (s.type === 'trend_short') return 'trendDown';
-    if (s.type === 'climax_buy' || s.type === 'climax_sell') return 'alertTriangle';
-    if (s.type === 'fng_block') return 'shield';
-    return 'target';
-  }
   function getProNote(s) {
     switch (s.type) {
       case 'trend_long':
@@ -1953,7 +1947,7 @@
     if (liveStatusEl) liveStatusEl.innerHTML = isLiveSignalPreview ? '<span class="live-dot" style="display:inline-block; margin-right:4px; vertical-align:middle;"></span>LIVE · nến chưa đóng, tín hiệu có thể đổi' : icon('checkCircle', 'ico-inline') + ' Đã xác nhận nến đóng';
     runTrendAnalysis(); signalsMap.clear();
     const aiList = document.getElementById('ai-signal-list');
-    if(!aiEnabled){ candleSeries.setMarkers([]); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; return;}
+    if(!aiEnabled){ candleSeriesMarkers.setMarkers([]); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; return;}
     if(candlesData.length < 200) { aiList.innerHTML='<div class="ai-empty">Vui lòng chờ tải đủ 200 nến dữ liệu lịch sử...</div>'; return; }
     
     const closes = candlesData.map(c => c.close);
@@ -1970,6 +1964,13 @@
 
     const signals = [];
     function addSignal(sig) { signals.push(sig); if (!signalsMap.has(sig.time)) signalsMap.set(sig.time, []); signalsMap.get(sig.time).push(sig); }
+    function signalIconName(s) {
+      if (s.type === 'trend_long') return 'trendUp';
+      if (s.type === 'trend_short') return 'trendDown';
+      if (s.type === 'climax_buy' || s.type === 'climax_sell') return 'alertTriangle';
+      if (s.type === 'fng_block') return 'shield';
+      return 'target';
+    }
     let lastLongIdx = -9999, lastShortIdx = -9999; const cooldownBars = 10;
     
     for (let i = 200; i < candlesData.length; i++) {
@@ -2050,7 +2051,7 @@
       else if (s.type === 'vol_spike') markers.push({ time: s.time, position: (s.tone === 'up' ? 'belowBar' : 'aboveBar'), color: s.color, shape: 'circle', text: '' }); // Dấu chấm hiển thị lại
     });
     markers.sort((a,b) => a.time - b.time);
-    candleSeries.setMarkers(markers);
+    candleSeriesMarkers.setMarkers(markers);
     
     aiList.innerHTML = '';
     if (visibleSignals.length === 0){ aiList.innerHTML = '<div class="ai-empty">Chưa có dữ liệu hoặc đã được dọn sạch sẽ...</div>'; return; }
