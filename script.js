@@ -146,7 +146,7 @@
   function sgPt(s, r) { const deg = 180 - (s / 100) * 180; const rad = deg * Math.PI / 180; return { x: SG_CX + r * Math.cos(rad), y: SG_CY - r * Math.sin(rad) }; }
   function sgArcPath(r, s1, s2) { const a = sgPt(s1, r), b = sgPt(s2, r); return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`; }
 
-  // Tạo 1 widget gauge độc lập, gắn vào 1 container. opts: segments, colorFn, labelFn, leftLabel, rightLabel, formatCenter, subHtml(meta), unit
+  // Tạo 1 widget gauge độc lập, gắn vào 1 container. opts: segments, colorFn, labelFn, leftLabel, rightLabel, formatCenter, unit
   function createGaugeWidget(mountEl, opts) {
     if (!mountEl) return { update(){} };
     let animScore = 50, animFrameId = null, prevScore = null;
@@ -173,10 +173,7 @@
           <text x="270" y="184" text-anchor="end" font-family="'JetBrains Mono', monospace" font-weight="700" font-size="11" fill="#7c8598" letter-spacing="1">${opts.rightLabel}</text>
           <text class="sg-percent" x="150" y="148" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-weight="800" font-size="42" fill="${opts.colorFn(50)}">--</text>
           <text class="sg-label" x="150" y="174" text-anchor="middle" font-family="'Inter', sans-serif" font-weight="600" font-size="15" fill="#e7eaf0">Đang tải...</text>
-        </svg>
-        <div class="sg-footer">
-          <span class="sg-sub"></span>
-        </div>`;
+        </svg>`;
       mountEl.classList.add('sg-ready');
     }
     function animateTo(targetScore, meta) {
@@ -218,9 +215,6 @@
       }
       animFrameId = requestAnimationFrame(frame);
 
-      const subEl = mountEl.querySelector('.sg-sub');
-      if (subEl && opts.subHtml) subEl.innerHTML = opts.subHtml(meta || {});
-
       const deltaEl = mountEl.querySelector('.sg-delta');
       if (deltaEl) {
         if (prevScore !== null) {
@@ -244,8 +238,7 @@
     colorFn: score => { if (score < 20) return '#e0455c'; if (score < 40) return '#e07a5f'; if (score < 60) return '#d9a066'; if (score < 80) return '#7fc95f'; return '#2ecc71'; },
     labelFn: score => { if (score < 20) return 'Short áp đảo'; if (score < 40) return 'Nghiêng Short'; if (score < 60) return 'Cân bằng'; if (score < 80) return 'Nghiêng Long'; return 'Long áp đảo'; },
     leftLabel: 'SHORT', rightLabel: 'LONG', unit: '%',
-    formatCenter: s => Math.round(s) + '%',
-    subHtml: meta => `${meta.live ? '<span class="sg-live-badge"><span class="live-dot"></span>LIVE</span>' : ''}Áp lực mua 60s: <b>${meta.liveScore !== undefined && meta.liveScore !== null ? meta.liveScore.toFixed(1) + '%' : '--'}</b> · TK L/S (Binance 5p): <b>${(meta.ratio || 0).toFixed(2)}</b>`
+    formatCenter: s => Math.round(s) + '%'
   });
   // Quy đổi tỉ lệ Long/Short thành % tài khoản Long — công thức toán học trực tiếp
   // từ số liệu thật của Binance (ratio = longAccount / shortAccount), không suy đoán.
@@ -282,8 +275,7 @@
     colorFn: score => { if (score < 25) return '#e0455c'; if (score < 45) return '#e07a5f'; if (score < 55) return '#d9a066'; if (score < 75) return '#7fc95f'; return '#2ecc71'; },
     labelFn: score => { if (score < 25) return 'Sợ hãi tột độ'; if (score < 45) return 'Sợ hãi'; if (score < 55) return 'Trung lập'; if (score < 75) return 'Tham lam'; return 'Tham lam tột độ'; },
     leftLabel: 'SỢ HÃI', rightLabel: 'THAM LAM', unit: ' đ',
-    formatCenter: s => Math.round(s),
-    subHtml: meta => `Cập nhật lúc <b>${meta.updated || '--'}</b>${meta.countdown ? ' · Kỳ tiếp theo sau <b>' + meta.countdown + '</b>' : ''}`
+    formatCenter: s => Math.round(s)
   });
   let fngPrevValue = null;
   let fngNextUpdateTs = null; // mốc thời gian (ms) nguồn dữ liệu sẽ công bố số mới, dùng để đếm ngược live
@@ -314,8 +306,6 @@
     if (fngNextUpdateTs !== null) {
       const remain = fngNextUpdateTs - Date.now();
       if (remain <= 0) { fetchFearGreedIndex(); return; }
-      const subEl = document.querySelector('#fng-gauge .sg-sub');
-      if (subEl && fngPrevValue !== null) subEl.innerHTML = `Cập nhật gần nhất: <b>${fngPrevValue}</b> điểm · Kỳ tiếp theo sau <b>${fmtCountdown(remain)}</b>`;
     }
   }, 1000);
   setTimeout(fetchFearGreedIndex, 1300);
