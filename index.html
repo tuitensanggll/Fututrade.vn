@@ -11,8 +11,8 @@
 </script>
 </head>
 <body>
-
-  <div id="auth-overlay" class="auth-overlay">
+  
+  <div id="auth-overlay" class="auth-overlay" style="display:none;"></div>
   <div class="auth-box">
     <div class="auth-brand">FUTU TRADE</div>
     <div class="auth-subtitle">Hệ thống Terminal Crypto Demo</div>
@@ -39,7 +39,7 @@
 
   <div class="topbar">
     <div class="brand">
-      <div class="brand-mark">FUTU</div>
+      <img src="logofututrade.png" class="brand-logo" alt="FUTU TRADE">
       <div class="brand-text">FUTU TRADE<span> CRYPTO TERMINAL - ĐƯỢC PHÁT TRIỂN BỞI SINH VIÊN VÕ THANH SANG(UTH)</span></div>
     </div>
     
@@ -53,6 +53,38 @@
     <div class="search-box">
       <input type="text" id="symbol-input" placeholder="Nhập mã..." value="BTC">
       <button id="search-btn">Tìm kiếm</button>
+    </div>
+
+    <div class="profile-wrap" id="profile-wrap" style="display:none;">
+      <button class="profile-btn" id="profile-btn" type="button">
+        <span class="profile-avatar" id="profile-avatar">?</span>
+        <span class="profile-meta">
+          <span class="profile-name" id="profile-name">Tài khoản</span>
+          <span class="profile-uid" id="profile-uid-mini">UID: ---------</span>
+        </span>
+        <span class="ico profile-chevron"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg></span>
+      </button>
+      <div class="profile-dropdown" id="profile-dropdown">
+        <div class="profile-dropdown-head">
+          <span class="profile-avatar large" id="profile-avatar-lg">?</span>
+          <div>
+            <div class="profile-dropdown-name" id="profile-dropdown-name">Tài khoản</div>
+            <div class="profile-dropdown-email" id="profile-dropdown-email">—</div>
+          </div>
+        </div>
+        <div class="profile-uid-row">
+          <span>UID</span>
+          <span class="profile-uid-value" id="profile-uid-full">---------</span>
+          <button class="profile-copy-btn" id="profile-copy-uid" type="button" title="Sao chép UID">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M4.5 15.5H4A1.5 1.5 0 012.5 14V4A1.5 1.5 0 014 2.5h10A1.5 1.5 0 0115.5 4v.5"/></svg>
+          </button>
+        </div>
+        <div class="profile-divider"></div>
+        <button class="profile-logout-btn" id="btn-logout" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+          Đăng xuất
+        </button>
+      </div>
     </div>
   </div>
 
@@ -359,7 +391,8 @@
     GoogleAuthProvider, 
     FacebookAuthProvider,
     RecaptchaVerifier,
-    signInWithPhoneNumber
+    signInWithPhoneNumber,
+    signOut
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
   //  thông tin Firebase Console
@@ -378,15 +411,64 @@
 
   const authOverlay = document.getElementById('auth-overlay');
 
+  // Sinh mã UID hiển thị (9 chữ số) ổn định từ uid thật của Firebase,
+  // giống cách các sàn lớn hiện UID rút gọn thay vì chuỗi uid dài khó nhớ.
+  function shortUidFrom(uid) {
+    let hash = 0;
+    for (let i = 0; i < uid.length; i++) {
+      hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
+    }
+    return String(100000000 + (hash % 900000000));
+  }
+
+  const profileWrap = document.getElementById('profile-wrap');
+  const profileBtn = document.getElementById('profile-btn');
+  const profileAvatar = document.getElementById('profile-avatar');
+  const profileAvatarLg = document.getElementById('profile-avatar-lg');
+  const profileName = document.getElementById('profile-name');
+  const profileUidMini = document.getElementById('profile-uid-mini');
+  const profileDropdownName = document.getElementById('profile-dropdown-name');
+  const profileDropdownEmail = document.getElementById('profile-dropdown-email');
+  const profileUidFull = document.getElementById('profile-uid-full');
+  const copyUidBtn = document.getElementById('profile-copy-uid');
+  const logoutBtn = document.getElementById('btn-logout');
+
+  // Đổ dữ liệu người dùng ra ô profile cạnh logo
+  function renderProfile(user) {
+    const displayName = user.displayName || (user.email ? user.email.split('@')[0] : 'Người dùng');
+    const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
+    const uidShort = shortUidFrom(user.uid);
+
+    profileName.textContent = displayName;
+    profileDropdownName.textContent = displayName;
+    profileDropdownEmail.textContent = user.email || user.phoneNumber || 'Đã xác thực';
+    profileUidMini.textContent = 'UID: ' + uidShort;
+    profileUidFull.textContent = uidShort;
+
+    [profileAvatar, profileAvatarLg].forEach(el => {
+      if (!el) return;
+      if (user.photoURL) {
+        el.innerHTML = `<img src="${user.photoURL}" alt="avatar">`;
+      } else {
+        el.textContent = initial;
+      }
+    });
+
+    profileWrap.style.display = 'block';
+  }
+
   // 1. Kiểm tra trạng thái đăng nhập tự động
   onAuthStateChanged(auth, (user) => {
     if (user) {
       // Đã đăng nhập -> Mở khóa ẩn màn hình Login đi
       authOverlay.style.display = 'none';
+      renderProfile(user);
       console.log("User hiện tại:", user.uid);
     } else {
       // Chưa đăng nhập -> Hiện màn hình khóa bắt buộc
       authOverlay.style.display = 'flex';
+      profileWrap.style.display = 'none';
+      profileWrap.classList.remove('open');
     }
   });
 
@@ -402,6 +484,30 @@
     signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Facebook: " + err.message));
   });
 
+  // 4. Mở / đóng dropdown profile
+  profileBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    profileWrap.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!profileWrap.contains(e.target)) profileWrap.classList.remove('open');
+  });
+
+  // 5. Sao chép UID
+  copyUidBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(profileUidFull.textContent).then(() => {
+      const originalTitle = copyUidBtn.title;
+      copyUidBtn.title = 'Đã sao chép!';
+      setTimeout(() => { copyUidBtn.title = originalTitle; }, 1500);
+    });
+  });
+
+  // 6. Đăng xuất tài khoản
+  logoutBtn.addEventListener('click', () => {
+    signOut(auth).then(() => {
+      profileWrap.classList.remove('open');
+    }).catch(err => alert("Lỗi đăng xuất: " + err.message));
+  });
 
   // Nút xác nhận mã OTP
   document.getElementById('btn-verify-otp').addEventListener('click', () => {
