@@ -11,6 +11,39 @@
 </head>
 <body>
 
+  <div id="auth-overlay" class="auth-overlay">
+  <div class="auth-box">
+    <div class="auth-brand">FUTU TRADE</div>
+    <div class="auth-subtitle">Hệ thống Terminal Crypto dành cho Sinh viên UTH</div>
+    
+    <button class="btn-auth btn-google" id="btn-google">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google">
+      Tiếp tục với Google
+    </button>
+    
+    <button class="btn-auth btn-facebook" id="btn-facebook">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/b/b9/2023_Facebook_icon.svg" alt="Facebook">
+      Tiếp tục với Facebook
+    </button>
+    
+    <div class="auth-divider"><span>HOẶC SỐ ĐIỆN THOẠI</span></div>
+    
+    <div class="phone-auth-container">
+      <div id="phone-input-group">
+        <input type="text" id="phone-number" placeholder="+84 901 234 567">
+        <button id="btn-send-otp">Gửi mã</button>
+      </div>
+      
+      <div id="otp-input-group" style="display: none; margin-top: 12px;">
+        <input type="text" id="otp-code" placeholder="Nhập 6 số mã OTP">
+        <button id="btn-verify-otp">Xác nhận</button>
+      </div>
+      
+      <div id="recaptcha-container" style="margin-top: 12px;"></div>
+    </div>
+  </div>
+</div>
+
   <div class="topbar">
     <div class="brand">
       <div class="brand-mark">FUTU</div>
@@ -249,5 +282,98 @@
   </div>
 
   <script src="script.js"></script>
+
+  <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { 
+    getAuth, 
+    onAuthStateChanged, 
+    signInWithPopup, 
+    GoogleAuthProvider, 
+    FacebookAuthProvider,
+    RecaptchaVerifier,
+    signInWithPhoneNumber
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+  //  thông tin Firebase Console
+   const firebaseConfig = {
+    apiKey: "AIzaSyAsreiWebSWQUh76EaPJIz5SZ1YDzCrMM0",
+    authDomain: "futu-quanly.firebaseapp.com",
+    databaseURL: "https://futu-quanly-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "futu-quanly",
+    storageBucket: "futu-quanly.firebasestorage.app",
+    messagingSenderId: "572473761748",
+    appId: "1:572473761748:web:da6f2674b06bd651e8c041"
+  };
+  // Khởi tạo Firebase
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  const authOverlay = document.getElementById('auth-overlay');
+
+  // 1. Kiểm tra trạng thái đăng nhập tự động
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      // Đã đăng nhập -> Mở khóa ẩn màn hình Login đi
+      authOverlay.style.display = 'none';
+      console.log("User hiện tại:", user.uid);
+    } else {
+      // Chưa đăng nhập -> Hiện màn hình khóa bắt buộc
+      authOverlay.style.display = 'flex';
+    }
+  });
+
+  // 2. Xử lý Đăng nhập Google
+  document.getElementById('btn-google').addEventListener('click', () => {
+    const provider = new GoogleAuthProvider();
+    signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Google: " + err.message));
+  });
+
+  // 3. Xử lý Đăng nhập Facebook
+  document.getElementById('btn-facebook').addEventListener('click', () => {
+    const provider = new FacebookAuthProvider();
+    signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Facebook: " + err.message));
+  });
+
+  // 4. Xử lý Đăng nhập qua Số điện thoại (SMS OTP)
+  let confirmationResult = null;
+  
+  // Khởi tạo bộ xác thực Captcha ẩn/hiện để tránh bot spam SMS
+  window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+    'size': 'normal'
+  });
+
+  // Nút gửi OTP
+  document.getElementById('btn-send-otp').addEventListener('click', () => {
+    const phoneNumber = document.getElementById('phone-number').value.trim();
+    if(!phoneNumber) return alert("Vui lòng nhập số điện thoại định dạng +84...");
+    
+    const appVerifier = window.recaptchaVerifier;
+    
+    signInWithPhoneNumber(auth, phoneNumber, appVerifier)
+      .then((result) => {
+        confirmationResult = result;
+        document.getElementById('otp-input-group').style.display = 'flex';
+        alert("Mã OTP đã gửi! Vui lòng kiểm tra tin nhắn.");
+      })
+      .catch((error) => {
+        alert("Lỗi gửi SMS: " + error.message);
+      });
+  });
+
+  // Nút xác nhận mã OTP
+  document.getElementById('btn-verify-otp').addEventListener('click', () => {
+    const code = document.getElementById('otp-code').value.trim();
+    if(!code || !confirmationResult) return alert("Vui lòng nhập mã OTP");
+
+    confirmationResult.confirm(code)
+      .then((result) => {
+        alert("Đăng nhập thành công!");
+      })
+      .catch((error) => {
+        alert("Mã OTP không chính xác hoặc đã hết hạn!");
+      });
+  });
+</script>
 </body>
 </html>
