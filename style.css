@@ -445,3 +445,14 @@
 #btn-send-otp:hover, #btn-verify-otp:hover {
   opacity: 0.9;
 }
+
+/* Custom lại thư viện số điện thoại quốc tế cho nền tối */
+.iti { width: 100%; }
+.iti__country-list {
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.iti__country.iti__highlight { background-color: var(--surface-alt); }
+.iti__selected-dial-code { color: var(--text); }
