@@ -357,36 +357,56 @@
   let confirmationResult = null;
 
   // 4. LOGIC XỬ LÝ NÚT GỬI OTP (BẢO ĐẢM KHÔNG LỖI ĐỊNH DẠNG)
+ // --- XỬ LÝ NÚT GỬI OTP SIÊU THÔNG MINH (TỰ ĐỘNG BÓC TÁCH MÃ QUỐC GIA TỪ LÁ CỜ) ---
   document.getElementById('btn-send-otp').addEventListener('click', () => {
-    // Gọi hàm getNumber() để tự động thêm mã quốc gia dạng +84 vào đầu số
-    let phoneNumber = phoneInput.getNumber(); 
-
-    // Bộ lọc thông minh: Nếu người dùng gõ thừa số 0 ở đầu (+84079...), tự động cắt bỏ số 0 thừa
-    if (phoneNumber.startsWith('+840')) {
-      phoneNumber = '+84' + phoneNumber.substring(4);
+    
+    // 1. Tự động lấy mã vùng của quốc gia đang chọn trên lá cờ (Ví dụ: VN là 84, Mỹ là 1,...)
+    const countryData = phoneInput.getSelectedCountryData();
+    const dialCode = countryData.dialCode; 
+    
+    // 2. Lấy số điện thoại thô do bạn gõ vào ô input
+    let rawNumber = document.getElementById('phone-number').value.trim();
+    
+    if (!rawNumber) {
+      return alert("Vui lòng nhập số điện thoại!");
     }
 
-    // Kiểm tra tính hợp lệ bắt buộc của Firebase Auth
-    if (!phoneNumber.startsWith('+')) {
-      alert("Số điện thoại không hợp lệ hoặc thiếu mã vùng quốc gia!");
-      return;
+    // 3. THUẬT TOÁN TỰ ĐỘNG LÀM SẠCH SỐ ĐIỆN THOẠI:
+    // Xóa bỏ mọi khoảng trắng, dấu gạch ngang lỡ gõ vào
+    rawNumber = rawNumber.replace(/[\s\-\(\)]/g, '');
+
+    // Nếu bạn gõ số 0 ở đầu (Ví dụ chọn cờ VN xong gõ: 0794392411) -> Tự cắt bỏ số 0 đi
+    if (rawNumber.startsWith('0')) {
+      rawNumber = rawNumber.substring(1);
     }
+
+    // Nếu bạn lỡ tay gõ cả mã vùng vào ô nhập (Ví dụ chọn cờ VN xong gõ tiếp +8479... hoặc 8479...)
+    if (rawNumber.startsWith('+' + dialCode)) {
+      rawNumber = rawNumber.substring(('+' + dialCode).length);
+    } else if (rawNumber.startsWith(dialCode)) {
+      rawNumber = rawNumber.substring(dialCode.length);
+    }
+
+    // 4. GHÉP LẠI THÀNH CHUỖI E.164 HOÀN HẢO GỬI LÊN FIREBASE (Dạng chuẩn: +84794392411)
+    const finalPhoneNumber = `+${dialCode}${rawNumber}`;
+    
+    console.log("Số điện thoại chuẩn gửi đi:", finalPhoneNumber);
 
     const appVerifier = window.recaptchaVerifier;
-
-    // Gửi số điện thoại chuẩn E.164 lên Firebase
-    signInWithPhoneNumber(auth, phoneNumber, appVerifier)
+    
+    // 5. Gửi số điện thoại đã được xử lý chuẩn lên hệ thống SMS Firebase
+    signInWithPhoneNumber(auth, finalPhoneNumber, appVerifier)
       .then((result) => {
         confirmationResult = result;
-        // Chuyển đổi trạng thái giao diện sang nhập mã OTP
+        // Hiện ô nhập OTP và nút Xác thực lên
         document.getElementById('otp-input-group').style.display = 'block';
         document.getElementById('btn-verify-otp').style.display = 'block';
         document.getElementById('btn-send-otp').style.display = 'none';
-        alert("Mã OTP đã được gửi thành công đến điện thoại của bạn!");
+        alert("Mã OTP đã gửi! Vui lòng kiểm tra tin nhắn điện thoại.");
       })
       .catch((error) => {
-        console.error(error);
-        alert("Lỗi gửi SMS: " + error.message + "\n(Hãy chắc chắn bạn đã bật tính năng 'Phone' trong phần Authentication trên Firebase Console nhé!)");
+        console.error("Lỗi gửi Firebase:", error);
+        alert("Lỗi gửi SMS: " + error.message);
       });
   });
 
