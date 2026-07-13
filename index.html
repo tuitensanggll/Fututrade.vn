@@ -322,6 +322,8 @@
     signInWithPopup,
     GoogleAuthProvider,
     FacebookAuthProvider,
+    fetchSignInMethodsForEmail,
+    linkWithCredential,
     RecaptchaVerifier,
     signInWithPhoneNumber,
     signOut
@@ -415,14 +417,66 @@
   // 2. Xử lý Đăng nhập Google
   document.getElementById('btn-google').addEventListener('click', () => {
     const provider = new GoogleAuthProvider();
-    signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Google: " + err.message));
+    signInWithPopup(auth, provider).catch(err => handleAuthError(err, 'Google'));
   });
 
   // 3. Xử lý Đăng nhập Facebook
   document.getElementById('btn-facebook').addEventListener('click', () => {
     const provider = new FacebookAuthProvider();
-    signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Facebook: " + err.message));
+    signInWithPopup(auth, provider).catch(err => handleAuthError(err, 'Facebook'));
   });
+
+  // 3a. Xử lý trường hợp email đã tồn tại với một provider khác
+  // (vd: đã từng đăng nhập Google bằng email X, giờ bấm Facebook cũng dùng email X)
+  // -> tự động yêu cầu đăng nhập lại bằng provider gốc rồi liên kết (link) provider mới vào chung 1 tài khoản.
+  const PROVIDER_LABELS = {
+    'google.com': 'Google',
+    'facebook.com': 'Facebook',
+    'password': 'Email/Mật khẩu',
+    'phone': 'Số điện thoại'
+  };
+
+  async function handleAuthError(err, attemptedProviderName) {
+    if (err.code !== 'auth/account-exists-with-different-credential') {
+      alert(`Lỗi đăng nhập ${attemptedProviderName}: ${err.message}`);
+      return;
+    }
+
+    const email = err.customData && err.customData.email;
+    const pendingCred = GoogleAuthProvider.credentialFromError(err) || FacebookAuthProvider.credentialFromError(err);
+
+    if (!email || !pendingCred) {
+      alert(`Email này đã được đăng ký bằng một phương thức đăng nhập khác. Vui lòng thử đăng nhập bằng Google hoặc Facebook mà bạn đã dùng trước đó.`);
+      return;
+    }
+
+    try {
+      const existingMethods = await fetchSignInMethodsForEmail(auth, email);
+      const originalMethod = existingMethods[0];
+      const originalLabel = PROVIDER_LABELS[originalMethod] || originalMethod;
+
+      const ok = confirm(
+        `Email ${email} đã được đăng ký bằng ${originalLabel}.\n` +
+        `Đăng nhập bằng ${originalLabel} ngay bây giờ để liên kết tài khoản ${attemptedProviderName} vào chung 1 tài khoản?`
+      );
+      if (!ok) return;
+
+      let signInResult;
+      if (originalMethod === 'google.com') {
+        signInResult = await signInWithPopup(auth, new GoogleAuthProvider());
+      } else if (originalMethod === 'facebook.com') {
+        signInResult = await signInWithPopup(auth, new FacebookAuthProvider());
+      } else {
+        alert(`Vui lòng đăng nhập bằng ${originalLabel} theo cách bạn đã dùng trước đây, sau đó liên kết ${attemptedProviderName} sau.`);
+        return;
+      }
+
+      await linkWithCredential(signInResult.user, pendingCred);
+      alert(`Đã liên kết tài khoản ${attemptedProviderName} thành công! Từ nay bạn có thể đăng nhập bằng ${originalLabel} hoặc ${attemptedProviderName} đều được, dữ liệu vẫn là 1 tài khoản duy nhất.`);
+    } catch (linkErr) {
+      alert(`Không thể liên kết tài khoản: ${linkErr.message}`);
+    }
+  }
 
   // 3b. Đăng nhập bằng số điện thoại + mã OTP
   let confirmationResult = null;
