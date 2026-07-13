@@ -304,7 +304,7 @@
       
       <div class="setting-group" style="text-align: left; margin-bottom: 15px;">
         <label style="display: block; margin-bottom: 8px;">Số điện thoại của bạn:</label>
-        <input type="tel" id="phone-number" style="width: 100%; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;">
+        <input type="tel" id="phone-number" style="width: 100%; padding: 10px 10px 10px 90px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;">
       </div>
 
       <div id="recaptcha-container" style="margin: 15px auto; display: flex; justify-content: center;"></div>
@@ -322,6 +322,12 @@
   </div>
 
   <style>
+    #phone-number {
+  padding-left: 95px !important; /* Đẩy chữ sang phải nhường chỗ cho cờ và +84 */
+}
+.iti--separate-dial-code .iti__selected-flag {
+  min-width: 80px !important; /* Giữ khoảng cách cố định cho mã vùng */
+}
     /* --- CUSTOM LẠI TOÀN BỘ Ô CHỌN QUỐC GIA CHUẨN DARK MODE BINANCE --- */
     .iti { 
       width: 100% !important; 
@@ -375,7 +381,6 @@
     }
   </style>
   <script src="script.js"></script>
-  
   <script type="module">
   import { initializeApp } from "firebase/app";
   import { getAuth, signInWithPhoneNumber, RecaptchaVerifier } from "firebase/auth";
