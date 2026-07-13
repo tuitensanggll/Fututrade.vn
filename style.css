@@ -12,10 +12,58 @@
 
   /* TOP BAR */
   .topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding-bottom:18px; }
-  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-logo{
+    width:44px;
+    height:44px;
+    object-fit:contain;
+    transition:transform .3s ease, filter .3s ease;
+    cursor:pointer;
+    background:transparent;
+    filter:
+    drop-shadow(0 0 1px rgba(0,0,0,.35))
+    drop-shadow(0 2px 10px rgba(255,180,80,.28));
+   }
+
+     .brand-logo:hover{
+    transform:scale(1.06);
+    filter:
+    drop-shadow(0 0 1px rgba(0,0,0,.35))
+    drop-shadow(0 2px 16px rgba(255,201,60,.45));
+   }
   .brand-mark{ width:34px; height:34px; border-radius:9px; background:linear-gradient(145deg, var(--accent), #7c5cff); display:flex; align-items:center; justify-content:center; font-family:'Sora', sans-serif; font-weight:800; font-size:15px; color:#fff; box-shadow:0 4px 18px -4px #3d8bff70; }
   .brand-text{ font-family:'Sora', sans-serif; font-weight:700; font-size:16px; letter-spacing:0.2px; }
   .brand-text span{ color:var(--text-dim); font-weight:500; font-size:12px; display:block; margin-top:1px; letter-spacing:0.4px;}
+
+  /* PROFILE WIDGET */
+  .profile-wrap{ position:relative; margin-left:4px; }
+  .profile-btn{ display:flex; align-items:center; gap:9px; background:var(--surface); border:1px solid var(--border); border-radius:24px; padding:6px 12px 6px 6px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .profile-btn:hover{ border-color:#3d8bff55; background:var(--surface-alt); }
+  .profile-avatar{ width:30px; height:30px; border-radius:50%; background:linear-gradient(145deg,var(--gold),var(--accent)); display:flex; align-items:center; justify-content:center; font-family:'Sora',sans-serif; font-weight:800; font-size:13px; color:#0a0d13; flex-shrink:0; overflow:hidden; }
+  .profile-avatar img{ width:100%; height:100%; object-fit:cover; border-radius:50%; }
+  .profile-avatar.large{ width:44px; height:44px; font-size:17px; }
+  .profile-meta{ display:flex; flex-direction:column; align-items:flex-start; line-height:1.25; }
+  .profile-name{ font-family:'Sora',sans-serif; font-weight:600; font-size:12.5px; color:var(--text); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .profile-uid{ font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--text-dim); letter-spacing:.3px; }
+  .profile-chevron{ color:var(--text-dim); display:flex; transition:transform .2s; margin-left:2px; }
+  .profile-wrap.open .profile-chevron{ transform:rotate(180deg); }
+  .profile-wrap.open .profile-btn{ border-color:#3d8bff77; }
+
+  .profile-dropdown{ position:absolute; top:calc(100% + 10px); right:0; width:250px; background:var(--surface-alt); border:1px solid var(--border); border-radius:14px; box-shadow:0 16px 40px -12px rgba(0,0,0,.55); padding:16px; opacity:0; visibility:hidden; transform:translateY(-6px); transition:opacity .18s ease, transform .18s ease, visibility .18s; z-index:120; }
+  .profile-wrap.open .profile-dropdown{ opacity:1; visibility:visible; transform:translateY(0); }
+  .profile-dropdown-head{ display:flex; align-items:center; gap:10px; padding-bottom:14px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+  .profile-dropdown-name{ font-family:'Sora',sans-serif; font-weight:700; font-size:13.5px; color:var(--text); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .profile-dropdown-email{ font-size:11.5px; color:var(--text-dim); margin-top:2px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .profile-uid-row{ display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:9px 10px; margin-bottom:14px; }
+  .profile-uid-row > span:first-child{ font-size:10.5px; color:var(--text-dim); font-weight:600; letter-spacing:.5px; }
+  .profile-uid-value{ flex:1; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--text); letter-spacing:.4px; }
+  .profile-copy-btn{ background:none; border:none; color:var(--text-dim); cursor:pointer; display:flex; align-items:center; padding:2px; border-radius:5px; transition:color .15s, background .15s; }
+  .profile-copy-btn:hover{ color:var(--accent); background:var(--accent-dim); }
+  .profile-copy-btn svg{ width:15px; height:15px; }
+  .profile-divider{ height:1px; background:var(--border); margin:0 0 12px; }
+  .profile-logout-btn{ width:100%; display:flex; align-items:center; justify-content:center; gap:7px; background:var(--down-dim); border:1px solid #ff475740; color:var(--down); font-weight:700; font-size:12.5px; font-family:'Inter',sans-serif; padding:10px; border-radius:9px; cursor:pointer; transition:background .15s, border-color .15s; }
+  .profile-logout-btn:hover{ background:#ff475730; border-color:#ff475780; }
+  .profile-logout-btn svg{ width:15px; height:15px; }
   
   .search-box{ display:flex; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:2px; transition:border-color .15s; }
   .search-box:focus-within{ border-color:var(--accent); }
@@ -288,6 +336,9 @@
     .brand-text span{ display:none; } /* ẩn dòng phụ đề dài, giữ layout gọn trên màn hình nhỏ */
     .brand-text{ font-size:14px; }
     .search-box input{ width:88px; font-size:12px; padding:8px 4px 8px 8px; }
+    .profile-meta{ display:none; } /* trên di động chỉ hiện avatar cho gọn */
+    .profile-btn{ padding:5px; }
+    .profile-dropdown{ right:-8px; width:230px; }
     .chip{ padding:6px 10px; font-size:11.5px; }
 
     .ticker-card{ padding:14px 16px; gap:12px; }
