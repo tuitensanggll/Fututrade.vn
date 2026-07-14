@@ -6,6 +6,8 @@
   }
   *{box-sizing:border-box;}
   html{ overflow-x:hidden; -webkit-tap-highlight-color:transparent; }
+  /* Khi màn hình đăng nhập đang hiện, khoá cuộn trang chính để không lộ thanh trượt vô dụng phía sau overlay */
+  html.auth-locked, html.auth-locked body{ overflow:hidden !important; height:100%; }
   body{ margin:0; background:radial-gradient(1100px 480px at 12% -8%, #12213a55, transparent 60%), radial-gradient(900px 420px at 100% 0%, #1a0f2a4d, transparent 55%), var(--bg); color:var(--text); font-family:'Inter', sans-serif; min-height:100vh; padding:24px; overflow-x:hidden; }
   button{ touch-action:manipulation; } /* bỏ độ trễ 300ms chạm-2-lần mặc định của trình duyệt mobile, bấm nút phản hồi ngay */
   .num{ font-family:'JetBrains Mono', monospace; font-variant-numeric:tabular-nums; }
@@ -398,54 +400,115 @@
   justify-content: center;
   backdrop-filter: blur(10px);
 }
+
+/* Tông màu riêng cho màn hình đăng nhập: vàng cổ điển trên nền đêm, gợi cảm giác "phòng truy cập riêng" */
 .auth-box {
-  background:
-  border: 1px solid var(--border);
-  padding: 40px 32px;
-  border-radius: 16px;
+  --ag-ink: #f3ecdc;
+  --ag-dim: #aeb6c9;
+  --ag-gold: #cda45e;
+  --ag-gold-soft: #f0d094;
+  --ag-line: rgba(205,164,94,.32);
+  --ag-glass: rgba(6,8,13,.72);
+
+  position: relative;
+  background: linear-gradient(180deg, var(--ag-glass), rgba(28, 35, 75, 0.86));
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid var(--ag-line);
+  padding: 44px 38px 30px;
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
   text-align: center;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 30px 70px -20px rgba(0,0,0,.75), 0 0 0 1px rgba(0,0,0,.2) inset;
 }
+
+/* Bốn góc kẻ vàng kiểu khung ngắm HUD terminal — chi tiết đặc trưng thay cho khung bo tròn thông thường */
+.auth-corner{ position:absolute; width:22px; height:22px; pointer-events:none; }
+.auth-corner.tl{ top:-1px; left:-1px; border-top:1px solid var(--ag-gold); border-left:1px solid var(--ag-gold); }
+.auth-corner.tr{ top:-1px; right:-1px; border-top:1px solid var(--ag-gold); border-right:1px solid var(--ag-gold); }
+.auth-corner.bl{ bottom:-1px; left:-1px; border-bottom:1px solid var(--ag-gold); border-left:1px solid var(--ag-gold); }
+.auth-corner.br{ bottom:-1px; right:-1px; border-bottom:1px solid var(--ag-gold); border-right:1px solid var(--ag-gold); }
+
+.auth-eyebrow{
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:'JetBrains Mono', monospace; font-size:10px; font-weight:600;
+  letter-spacing:2.6px; color:var(--ag-gold-soft);
+  margin-bottom:20px;
+}
+.auth-eyebrow-dot{ width:5px; height:5px; border-radius:50%; background:var(--ag-gold-soft); box-shadow:0 0 0 0 rgba(240,208,148,.6); animation:auth-dot-pulse 1.8s infinite; }
+@keyframes auth-dot-pulse{ 0%{ box-shadow:0 0 0 0 rgba(240,208,148,.55); } 70%{ box-shadow:0 0 0 6px rgba(240,208,148,0); } 100%{ box-shadow:0 0 0 0 rgba(240,208,148,0); } }
+
 .auth-brand {
-  font-family: 'Sora', sans-serif;
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--accent);
-  margin-bottom: 8px;
-  letter-spacing: 1px;
+  font-family:'Fraunces', serif;
+  font-optical-sizing: auto;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  margin-bottom: 10px;
+  background: linear-gradient(180deg, var(--ag-gold-soft) 10%, var(--ag-gold) 55%, #a97f3d 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .auth-subtitle {
-  color: var(--text-dim);
-  font-size: 13px;
-  margin-bottom: 32px;
-  line-height: 1.5;
+  font-family:'JetBrains Mono', monospace;
+  color: var(--ag-dim);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  margin-bottom: 26px;
 }
+
+/* Vạch ngăn dạng con dấu — thay cho gạch chia mặc định, gợi cảm giác thẻ thành viên/niêm phong */
+.auth-seal{ display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:26px; }
+.auth-seal::before, .auth-seal::after{ content:''; flex:1; max-width:76px; height:1px; background:linear-gradient(90deg, transparent, var(--ag-line)); }
+.auth-seal::after{ background:linear-gradient(90deg, var(--ag-line), transparent); }
+.auth-seal span{ width:7px; height:7px; border:1px solid var(--ag-gold); transform:rotate(45deg); flex-shrink:0; }
+
 .btn-auth {
   width: 100%;
-  padding: 14px;
-  margin-bottom: 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface-alt);
-  color: var(--text);
-  font-weight: 600;
-  font-size: 14px;
+  padding: 14px 18px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(205,164,94,.22);
+  background: rgba(15,18,26,.55);
+  color: var(--ag-ink);
+  font-family:'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 13.5px;
+  letter-spacing: 0.2px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  transition: all 0.2s ease;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  transition: border-color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease;
 }
 .btn-auth:hover {
-  background: var(--border);
+  border-color: var(--ag-gold);
+  background: rgba(24,28,38,.75);
   transform: translateY(-1px);
+  box-shadow: 0 10px 24px -12px rgba(205,164,94,.35);
 }
-.btn-auth img {
-  width: 20px;
-  height: 20px;
+.btn-auth:active{ transform: translateY(0); }
+.btn-auth:focus-visible{ outline: 1px solid var(--ag-gold-soft); outline-offset: 3px; }
+.btn-auth-icon{ display:flex; align-items:center; justify-content:center; width:20px; height:20px; flex-shrink:0; }
+.btn-auth img { width: 18px; height: 18px; }
+.btn-auth-label{ white-space:nowrap; }
+
+.auth-footnote{
+  margin-top: 18px;
+  font-family:'JetBrains Mono', monospace;
+  font-size: 9px; font-weight:500; letter-spacing: 1.6px;
+  color: rgba(174,182,201,.55);
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px){
+  .auth-box{ padding:36px 24px 24px; max-width: 92vw; }
+  .auth-brand{ font-size:28px; }
+}
+@media (prefers-reduced-motion: reduce){
+  .auth-eyebrow-dot{ animation: none; }
 }
 .auth-divider {
   margin: 24px 0;
@@ -525,18 +588,35 @@
 
 .auth-box { position: relative; z-index: 5; }
 
+/* --- Vùng cuộn chứa ảnh nền: cho phép kéo lên/xuống để xem toàn bộ ảnh --- */
+.auth-scene-scroll {
+  position: absolute; inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: auto; /* .auth-scene có pointer-events:none, bật lại riêng cho vùng cuộn này */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #3d8bff88 transparent;
+}
+.auth-scene-scroll::-webkit-scrollbar { width: 9px; }
+.auth-scene-scroll::-webkit-scrollbar-track { background: rgba(10,13,19,.35); }
+.auth-scene-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3d8bffcc, #7c5cffcc);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.auth-scene-scroll::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #3d8bff, #7c5cff); background-clip: padding-box; }
+
 /* --- Ảnh nền pixel-art (Pepe trader trên nóc nhà FUTU TRADE) --- */
 .auth-scene-bg {
-  position: absolute; inset: -4%;
-  background-image: url('auth-bg.png');
-  background-size: cover;
-  background-position: center 50%;
-  animation: auth-bg-kenburns 30s ease-in-out infinite alternate;
+  display: block;
+  width: 100%;
+  height: auto;   /* giữ nguyên tỉ lệ gốc, không bị cắt/kéo giãn như background-size:cover */
+  min-height: 100%;
+  object-fit: cover; /* nếu ảnh thấp hơn khung nhìn thì vẫn phủ kín, còn nếu cao hơn sẽ cuộn được */
   filter: saturate(1.0) contrast(1.05);
-}
-@keyframes auth-bg-kenburns {
-  0%   { transform: scale(1) translate(0, 0); }
-  100% { transform: scale(1.09) translate(-1.2%, -1%); }
 }
 
 /* Làm tối viền để chữ/nút đăng nhập nổi bật hơn trên ảnh */
