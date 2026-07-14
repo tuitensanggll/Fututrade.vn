@@ -399,7 +399,7 @@
   backdrop-filter: blur(10px);
 }
 .auth-box {
-  background: var(--surface);
+  background:
   border: 1px solid var(--border);
   padding: 40px 32px;
   border-radius: 16px;
