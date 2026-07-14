@@ -62,6 +62,12 @@
   .profile-copy-btn{ background:none; border:none; color:var(--text-dim); cursor:pointer; display:flex; align-items:center; padding:2px; border-radius:5px; transition:color .15s, background .15s; }
   .profile-copy-btn:hover{ color:var(--accent); background:var(--accent-dim); }
   .profile-copy-btn svg{ width:15px; height:15px; }
+  .profile-link-account{ background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:10px; margin-bottom:14px; }
+  .profile-link-note{ font-size:11px; color:var(--text-dim); line-height:1.5; margin-bottom:10px; }
+  .profile-link-btn{ width:100%; display:flex; align-items:center; justify-content:center; gap:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); font-weight:600; font-size:12px; font-family:'Inter',sans-serif; padding:9px; border-radius:8px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .profile-link-btn:not(:last-child){ margin-bottom:8px; }
+  .profile-link-btn:hover{ border-color:var(--ag-gold, #cda45e); background:var(--surface-2, var(--surface)); }
+  .profile-link-btn img{ width:16px; height:16px; }
   .profile-divider{ height:1px; background:var(--border); margin:0 0 12px; }
   .profile-logout-btn{ width:100%; display:flex; align-items:center; justify-content:center; gap:7px; background:var(--down-dim); border:1px solid #ff475740; color:var(--down); font-weight:700; font-size:12.5px; font-family:'Inter',sans-serif; padding:10px; border-radius:9px; cursor:pointer; transition:background .15s, border-color .15s; }
   .profile-logout-btn:hover{ background:#ff475730; border-color:#ff475780; }
@@ -494,6 +500,13 @@
 .btn-auth-icon{ display:flex; align-items:center; justify-content:center; width:20px; height:20px; flex-shrink:0; }
 .btn-auth img { width: 18px; height: 18px; }
 .btn-auth-label{ white-space:nowrap; }
+
+.auth-or{ display:flex; align-items:center; gap:12px; margin:6px 0 14px; }
+.auth-or::before, .auth-or::after{ content:''; flex:1; height:1px; background:var(--ag-line, rgba(205,164,94,.18)); }
+.auth-or span{ font-family:'JetBrains Mono', monospace; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--ag-dim); }
+
+.btn-guest{ background:rgba(15,18,26,.3); border-style:dashed; }
+.btn-guest .btn-auth-icon{ color: var(--ag-gold-soft, #cda45e); }
 
 .auth-footnote{
   margin-top: 18px;
