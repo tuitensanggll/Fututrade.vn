@@ -417,6 +417,8 @@
     getAuth, 
     onAuthStateChanged, 
     signInWithPopup, 
+    signInWithRedirect,
+    getRedirectResult,
     GoogleAuthProvider, 
     FacebookAuthProvider,
     RecaptchaVerifier,
@@ -437,6 +439,26 @@
   // Khởi tạo Firebase
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
+
+  // Phát hiện mobile / trình duyệt trong app (Facebook, TikTok, Threads, Zalo, ...)
+  // vì các môi trường này thường KHÔNG giữ được sessionStorage giữa tab chính và popup,
+  // gây lỗi "missing initial state" khi dùng signInWithPopup. Với các môi trường này
+  // ta chuyển sang signInWithRedirect (điều hướng thẳng, không mở popup) để tránh lỗi.
+  function shouldUseRedirect() {
+    const ua = navigator.userAgent || '';
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+    const isInAppBrowser = /FBAN|FBAV|Instagram|Line|Zalo|TikTok|Threads|MicroMessenger/i.test(ua);
+    return isMobile || isInAppBrowser;
+  }
+
+  // Sau khi quay về từ redirect (nếu có), Firebase sẽ trả kết quả đăng nhập ở đây.
+  // onAuthStateChanged bên dưới cũng sẽ tự cập nhật UI, nhưng bắt lỗi ở đây giúp
+  // hiển thị thông báo rõ ràng nếu redirect thất bại thay vì im lặng.
+  getRedirectResult(auth).catch(err => {
+    if (err && err.code && err.code !== 'auth/no-auth-event') {
+      alert("Lỗi đăng nhập: " + err.message);
+    }
+  });
 
   const authOverlay = document.getElementById('auth-overlay');
 
@@ -506,13 +528,21 @@
   // 2. Xử lý Đăng nhập Google
   document.getElementById('btn-google').addEventListener('click', () => {
     const provider = new GoogleAuthProvider();
-    signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Google: " + err.message));
+    if (shouldUseRedirect()) {
+      signInWithRedirect(auth, provider).catch(err => alert("Lỗi đăng nhập Google: " + err.message));
+    } else {
+      signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Google: " + err.message));
+    }
   });
 
   // 3. Xử lý Đăng nhập Facebook
   document.getElementById('btn-facebook').addEventListener('click', () => {
     const provider = new FacebookAuthProvider();
-    signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Facebook: " + err.message));
+    if (shouldUseRedirect()) {
+      signInWithRedirect(auth, provider).catch(err => alert("Lỗi đăng nhập Facebook: " + err.message));
+    } else {
+      signInWithPopup(auth, provider).catch(err => alert("Lỗi đăng nhập Facebook: " + err.message));
+    }
   });
 
   // 4. Mở / đóng dropdown profile
