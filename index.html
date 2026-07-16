@@ -117,6 +117,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M4.5 15.5H4A1.5 1.5 0 012.5 14V4A1.5 1.5 0 014 2.5h10A1.5 1.5 0 0115.5 4v.5"/></svg>
           </button>
         </div>
+        <button class="profile-edit-btn" id="btn-edit-profile" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Chỉnh sửa hồ sơ
+        </button>
         <div class="profile-link-account" id="profile-link-account" style="display:none;">
           <div class="profile-link-note">Bạn đang dùng tài khoản khách. Liên kết để không mất dữ liệu:</div>
           <button class="profile-link-btn profile-link-google" id="btn-link-google" type="button">
@@ -381,6 +385,39 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="edit-profile-modal">
+    <div class="modal-box" style="max-width:380px;">
+      <div class="modal-title">
+        Chỉnh sửa hồ sơ
+        <button class="close-btn" id="close-edit-profile-modal" type="button">&times;</button>
+      </div>
+
+      <div class="avatar-upload-wrap">
+        <div class="avatar-upload-frame" id="avatar-upload-frame">
+          <span class="profile-avatar" id="edit-avatar-preview">?</span>
+          <div class="avatar-hover-layer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3.2L8.7 5.8h6.6L16.8 8H20a1 1 0 011 1v9.5a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.6"/></svg>
+          </div>
+        </div>
+        <button class="avatar-upload-btn" id="btn-choose-avatar" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3.2L8.7 5.8h6.6L16.8 8H20a1 1 0 011 1v9.5a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.6"/></svg>
+          Đổi ảnh đại diện
+        </button>
+        <div class="avatar-upload-hint">JPG hoặc PNG, tối đa 3MB</div>
+        <input type="file" id="avatar-file-input" accept="image/png, image/jpeg, image/webp" style="display:none;">
+      </div>
+
+      <div class="setting-group">
+        <label>Tên hiển thị</label>
+        <input type="text" id="edit-display-name" maxlength="30" placeholder="Nhập tên của bạn" style="font-family:'Inter', sans-serif;">
+        <div class="edit-name-counter" id="edit-name-counter">0/30</div>
+      </div>
+
+      <button class="btn-save full" id="btn-save-profile" type="button">Lưu thay đổi</button>
+      <div class="edit-profile-status" id="edit-profile-status"></div>
+    </div>
+  </div>
+
   <style></style>
     
   </style>
@@ -446,8 +483,15 @@
     signInAnonymously,
     linkWithPopup,
     linkWithRedirect,
-    signOut
+    signOut,
+    updateProfile
   } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import {
+    getDatabase,
+    ref as dbRef,
+    set as dbSet,
+    get as dbGet
+  } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
   //  thông tin Firebase Console
    const firebaseConfig = {
@@ -462,6 +506,7 @@
   // Khởi tạo Firebase
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
+  const rtdb = getDatabase(app);
 
   // Phát hiện mobile / trình duyệt trong app (Facebook, TikTok, Threads, Zalo, ...)
   // vì các môi trường này thường KHÔNG giữ được sessionStorage giữa tab chính và popup,
@@ -510,12 +555,17 @@
   const linkGoogleBtn = document.getElementById('btn-link-google');
   const linkFacebookBtn = document.getElementById('btn-link-facebook');
 
+  // Ảnh đại diện được lưu dạng chuỗi base64 (đã nén nhỏ) trong Realtime Database,
+  // vì Firebase Auth photoURL không đủ chỗ chứa base64 và Storage cần gói Blaze trả phí.
+  let cachedAvatarBase64 = null;
+
   // Đổ dữ liệu người dùng ra ô profile cạnh logo
   function renderProfile(user) {
     const isGuest = user.isAnonymous;
     const displayName = isGuest ? 'Khách' : (user.displayName || (user.email ? user.email.split('@')[0] : 'Người dùng'));
     const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
     const uidShort = shortUidFrom(user.uid);
+    const avatarSrc = cachedAvatarBase64 || user.photoURL;
 
     profileName.textContent = displayName;
     profileDropdownName.textContent = displayName;
@@ -525,8 +575,8 @@
 
     [profileAvatar, profileAvatarLg].forEach(el => {
       if (!el) return;
-      if (user.photoURL) {
-        el.innerHTML = `<img src="${user.photoURL}" alt="avatar">`;
+      if (avatarSrc) {
+        el.innerHTML = `<img src="${avatarSrc}" alt="avatar">`;
       } else {
         el.textContent = initial;
       }
@@ -537,6 +587,17 @@
     if (linkAccountBox) linkAccountBox.style.display = isGuest ? 'block' : 'none';
 
     profileWrap.style.display = 'block';
+  }
+
+  // Tải ảnh đại diện đã lưu trong Realtime Database (nếu có) rồi vẽ lại profile
+  async function loadAvatarThenRender(user) {
+    try {
+      const snap = await dbGet(dbRef(rtdb, 'users/' + user.uid + '/avatarBase64'));
+      cachedAvatarBase64 = snap.exists() ? snap.val() : null;
+    } catch (e) {
+      cachedAvatarBase64 = null;
+    }
+    renderProfile(user);
   }
 
   // Liên kết tài khoản khách hiện tại với một provider (Google/Facebook),
@@ -562,7 +623,8 @@
       // Đã đăng nhập -> Mở khóa ẩn màn hình Login đi
       authOverlay.style.display = 'none';
       document.documentElement.classList.remove('auth-locked'); // mở lại cuộn trang chính
-      renderProfile(user);
+      renderProfile(user); // vẽ ngay với dữ liệu có sẵn (không chờ mạng)
+      loadAvatarThenRender(user); // sau đó tải avatar từ Realtime Database và vẽ lại
       console.log("User hiện tại:", user.uid);
     } else {
       // Chưa đăng nhập -> Hiện màn hình khóa bắt buộc
@@ -630,6 +692,173 @@
     signOut(auth).then(() => {
       profileWrap.classList.remove('open');
     }).catch(err => alert("Lỗi đăng xuất: " + err.message));
+  });
+
+  // 7. CHỈNH SỬA HỒ SƠ — đổi tên hiển thị và ảnh đại diện (giống các sàn lớn)
+  const btnEditProfile = document.getElementById('btn-edit-profile');
+  const editProfileModal = document.getElementById('edit-profile-modal');
+  const closeEditProfileModalBtn = document.getElementById('close-edit-profile-modal');
+  const avatarUploadFrame = document.getElementById('avatar-upload-frame');
+  const btnChooseAvatar = document.getElementById('btn-choose-avatar');
+  const avatarFileInput = document.getElementById('avatar-file-input');
+  const editAvatarPreview = document.getElementById('edit-avatar-preview');
+  const editDisplayNameInput = document.getElementById('edit-display-name');
+  const editNameCounter = document.getElementById('edit-name-counter');
+  const btnSaveProfile = document.getElementById('btn-save-profile');
+  const editProfileStatus = document.getElementById('edit-profile-status');
+
+  const MAX_SOURCE_MB = 8; // giới hạn ảnh gốc trước khi nén, chỉ để tránh ảnh quá khổ làm treo trình duyệt
+  const MAX_BASE64_CHARS = 60000; // ~45KB sau nén — đủ nhỏ để lưu miễn phí trong Realtime Database
+  let selectedAvatarBase64 = null; // ảnh đã nén (base64), chưa lưu lên server cho tới khi bấm Lưu
+
+  function setEditProfileStatus(msg, type) {
+    editProfileStatus.textContent = msg || '';
+    editProfileStatus.className = 'edit-profile-status' + (type ? ' ' + type : '');
+  }
+
+  // Hiển thị avatar hiện tại (ảnh hoặc chữ cái đầu tên) vào ô preview trong modal
+  function paintAvatarPreview(srcUrl, fallbackInitial) {
+    if (srcUrl) {
+      editAvatarPreview.innerHTML = `<img src="${srcUrl}" alt="avatar">`;
+    } else {
+      editAvatarPreview.textContent = fallbackInitial || 'U';
+    }
+  }
+
+  // Thu nhỏ + nén ảnh ngay trên trình duyệt người dùng thành base64 JPEG nhỏ gọn,
+  // để lưu được miễn phí trong Realtime Database (không cần Firebase Storage trả phí).
+  function compressImageToBase64(file, maxDim, quality) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Không thể đọc tệp ảnh.'));
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Tệp không phải là ảnh hợp lệ.'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > height) {
+            if (width > maxDim) { height = Math.round(height * maxDim / width); width = maxDim; }
+          } else {
+            if (height > maxDim) { width = Math.round(width * maxDim / height); height = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function openEditProfileModal() {
+    const user = auth.currentUser;
+    if (!user) return;
+    selectedAvatarBase64 = null;
+    avatarFileInput.value = '';
+    const isGuest = user.isAnonymous;
+    const currentName = isGuest ? '' : (user.displayName || '');
+    editDisplayNameInput.value = currentName;
+    editNameCounter.textContent = currentName.length + '/30';
+    const fallbackInitial = (user.displayName || (user.email ? user.email.split('@')[0] : 'U')).trim().charAt(0).toUpperCase();
+    paintAvatarPreview(cachedAvatarBase64 || user.photoURL, fallbackInitial);
+    setEditProfileStatus('');
+    btnSaveProfile.disabled = false;
+    btnSaveProfile.textContent = 'Lưu thay đổi';
+    editProfileModal.classList.add('show');
+    profileWrap.classList.remove('open');
+  }
+
+  function closeEditProfileModal() {
+    editProfileModal.classList.remove('show');
+  }
+
+  btnEditProfile.addEventListener('click', openEditProfileModal);
+  closeEditProfileModalBtn.addEventListener('click', closeEditProfileModal);
+  editProfileModal.addEventListener('click', (e) => {
+    if (e.target === editProfileModal) closeEditProfileModal();
+  });
+
+  // Bấm vào khung ảnh hoặc nút "Đổi ảnh đại diện" đều mở hộp chọn file
+  avatarUploadFrame.addEventListener('click', () => avatarFileInput.click());
+  btnChooseAvatar.addEventListener('click', () => avatarFileInput.click());
+
+  avatarFileInput.addEventListener('change', async () => {
+    const file = avatarFileInput.files && avatarFileInput.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setEditProfileStatus('Vui lòng chọn một tệp hình ảnh.', 'error');
+      avatarFileInput.value = '';
+      return;
+    }
+    if (file.size > MAX_SOURCE_MB * 1024 * 1024) {
+      setEditProfileStatus(`Ảnh gốc vượt quá ${MAX_SOURCE_MB}MB, vui lòng chọn ảnh nhỏ hơn.`, 'error');
+      avatarFileInput.value = '';
+      return;
+    }
+
+    setEditProfileStatus('Đang xử lý ảnh...', '');
+    try {
+      // Nén dần: thử nhỏ gọn trước, nếu vẫn còn quá nặng thì nén thêm lần nữa
+      let dataUrl = await compressImageToBase64(file, 160, 0.72);
+      if (dataUrl.length > MAX_BASE64_CHARS) dataUrl = await compressImageToBase64(file, 160, 0.5);
+      if (dataUrl.length > MAX_BASE64_CHARS) dataUrl = await compressImageToBase64(file, 110, 0.5);
+
+      if (dataUrl.length > MAX_BASE64_CHARS * 1.5) {
+        setEditProfileStatus('Ảnh quá phức tạp để nén nhỏ, vui lòng chọn ảnh khác đơn giản hơn.', 'error');
+        avatarFileInput.value = '';
+        return;
+      }
+
+      selectedAvatarBase64 = dataUrl;
+      paintAvatarPreview(dataUrl, null);
+      setEditProfileStatus('');
+    } catch (err) {
+      setEditProfileStatus('Lỗi xử lý ảnh: ' + err.message, 'error');
+      avatarFileInput.value = '';
+    }
+  });
+
+  editDisplayNameInput.addEventListener('input', () => {
+    editNameCounter.textContent = editDisplayNameInput.value.length + '/30';
+  });
+
+  // Lưu thay đổi: ghi ảnh (base64 đã nén) vào Realtime Database, và tên vào Firebase Auth — miễn phí hoàn toàn
+  btnSaveProfile.addEventListener('click', async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const newName = editDisplayNameInput.value.trim();
+    if (!newName) {
+      setEditProfileStatus('Vui lòng nhập tên hiển thị.', 'error');
+      return;
+    }
+
+    btnSaveProfile.disabled = true;
+    btnSaveProfile.textContent = 'Đang lưu...';
+    setEditProfileStatus('');
+
+    try {
+      if (selectedAvatarBase64) {
+        setEditProfileStatus('Đang lưu ảnh...', '');
+        await dbSet(dbRef(rtdb, 'users/' + user.uid + '/avatarBase64'), selectedAvatarBase64);
+        cachedAvatarBase64 = selectedAvatarBase64;
+      }
+
+      await updateProfile(user, { displayName: newName });
+
+      renderProfile(user); // cập nhật ngay avatar + tên hiển thị ngoài thanh top bar
+      setEditProfileStatus('Đã lưu thay đổi!', 'ok');
+      setTimeout(closeEditProfileModal, 700);
+    } catch (err) {
+      setEditProfileStatus('Lỗi: ' + err.message, 'error');
+    } finally {
+      btnSaveProfile.disabled = false;
+      btnSaveProfile.textContent = 'Lưu thay đổi';
+    }
   });
 
   // Nút xác nhận mã OTP
