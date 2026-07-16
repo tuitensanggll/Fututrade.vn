@@ -88,9 +88,13 @@
       <button class="chip" data-symbol="BNB">BNB</button>
       <button class="chip" data-symbol="XRP">XRP</button>
     </div>
-    <div class="search-box">
-      <input type="text" id="symbol-input" placeholder="Nhập mã..." value="BTC">
-      <button id="search-btn">Tìm kiếm</button>
+    <div class="search-box-wrap">
+      <div class="search-box">
+        <input type="text" id="symbol-input" placeholder="Nhập mã... (VD: ADA, DOGE, TON)" value="BTC" autocomplete="off">
+        <button id="search-btn">Tìm kiếm</button>
+      </div>
+      <div class="symbol-suggest" id="symbol-suggest"></div>
+      <div class="symbol-error" id="symbol-error"></div>
     </div>
 
     <div class="profile-wrap" id="profile-wrap" style="display:none;">
