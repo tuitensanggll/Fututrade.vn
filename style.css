@@ -196,9 +196,13 @@
 
   /* TIMEFRAMES + CONTROLS */
   .tf-row{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:16px; border-bottom:1px solid var(--border); }
-  .tf-tabs{ display:flex; align-items:center; gap:2px; }
-  .tf-btn{ background:transparent; color:var(--text-dim); border:none; padding:10px 16px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; margin-bottom:-1px; font-family:'JetBrains Mono', monospace; transition:color .15s; }
+  .tf-tabs{ display:flex; align-items:center; gap:2px; flex:1 1 auto; min-width:0; max-width:100%; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+  .tf-tabs::-webkit-scrollbar{ height:4px; }
+  .tf-tabs::-webkit-scrollbar-track{ background:transparent; }
+  .tf-tabs::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
+  .tf-btn{ background:transparent; color:var(--text-dim); border:none; padding:10px 13px; cursor:pointer; font-weight:600; font-size:13px; border-bottom:2px solid transparent; margin-bottom:-1px; font-family:'JetBrains Mono', monospace; transition:color .15s; flex-shrink:0; white-space:nowrap; }
   .tf-btn.active{ color:var(--accent); border-bottom-color:var(--accent); }
+  .tf-btn-sep{ width:1px; height:16px; background:var(--border); margin:0 4px; flex-shrink:0; }
   
   .controls-right { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
   .color-pickers { display: flex; align-items: center; gap: 8px; }
