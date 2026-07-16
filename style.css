@@ -79,11 +79,23 @@
   .profile-logout-btn:hover{ background:#ff475730; border-color:#ff475780; }
   .profile-logout-btn svg{ width:15px; height:15px; }
   
+  .search-box-wrap{ position:relative; }
   .search-box{ display:flex; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:2px; transition:border-color .15s; }
   .search-box:focus-within{ border-color:var(--accent); }
   .search-box input{ background:transparent; border:none; color:var(--text); padding:9px 4px 9px 12px; font-size:13.5px; outline:none; width:130px; text-transform:uppercase; font-family:'JetBrains Mono', monospace; letter-spacing:0.5px; }
   .search-box button{ background:var(--accent); color:#fff; border:none; padding:9px 16px; border-radius:6px; cursor:pointer; font-weight:600; font-size:13px; transition:background .15s; }
   .search-box button:hover{ background:#2f78ee; }
+
+  /* GỢI Ý MÃ COIN — hiển thị toàn bộ cặp USDT có trên Binance khi người dùng gõ tìm kiếm */
+  .symbol-suggest{ position:absolute; top:calc(100% + 6px); left:0; width:260px; max-height:320px; overflow-y:auto; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; box-shadow:0 16px 36px -10px rgba(0,0,0,.55); z-index:150; display:none; padding:6px; }
+  .symbol-suggest.show{ display:block; }
+  .symbol-suggest-item{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-radius:7px; cursor:pointer; transition:background .12s; }
+  .symbol-suggest-item:hover, .symbol-suggest-item.hl{ background:var(--accent-dim); }
+  .symbol-suggest-base{ font-family:'JetBrains Mono', monospace; font-weight:700; font-size:12.5px; color:var(--text); letter-spacing:.3px; }
+  .symbol-suggest-quote{ font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--text-dim); }
+  .symbol-suggest-empty{ padding:12px 10px; font-size:12px; color:var(--text-dim); text-align:center; }
+  .symbol-error{ position:absolute; top:calc(100% + 6px); left:0; font-size:11px; color:var(--down); display:none; white-space:nowrap; }
+  .symbol-error.show{ display:block; }
   .chips{ display:flex; gap:6px; flex-wrap:wrap; }
   .chip{ background:var(--surface); border:1px solid var(--border); color:var(--text-dim); padding:7px 12px; border-radius:20px; font-size:12.5px; font-weight:600; cursor:pointer; transition:all .15s; font-family:'JetBrains Mono', monospace; }
   .chip.active{ background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
@@ -368,6 +380,7 @@
     .brand-text span{ display:none; } /* ẩn dòng phụ đề dài, giữ layout gọn trên màn hình nhỏ */
     .brand-text{ font-size:14px; }
     .search-box input{ width:88px; font-size:12px; padding:8px 4px 8px 8px; }
+    .symbol-suggest{ width:min(260px, 90vw); }
     .profile-meta{ display:none; } /* trên di động chỉ hiện avatar cho gọn */
     .profile-btn{ padding:5px; }
     .profile-dropdown{ right:-8px; width:230px; }
