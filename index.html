@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-</script>
 </head>
 <body>
   
@@ -494,19 +493,19 @@
       
       <div class="setting-group" style="text-align: left; margin-bottom: 15px;">
         <label style="display: block; margin-bottom: 8px;">Số điện thoại của bạn:</label>
-        <input type="tel" id="phone-number" style="width: 100%; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;">
+        <input type="tel" id="phone-number-modal" style="width: 100%; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;">
       </div>
 
-      <div id="recaptcha-container" style="margin: 15px auto; display: flex; justify-content: center;"></div>
+      <div id="recaptcha-container-modal" style="margin: 15px auto; display: flex; justify-content: center;"></div>
 
-      <div class="setting-group" id="otp-input-group" style="text-align: left; margin-bottom: 15px; display: none;">
+      <div class="setting-group" id="otp-input-group-modal" style="text-align: left; margin-bottom: 15px; display: none;">
         <label style="display: block; margin-bottom: 8px;">Nhập mã OTP (6 chữ số):</label>
-        <input type="text" id="otp-code" placeholder="------" style="width: 100%; text-align: center; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; letter-spacing: 6px; font-size: 18px; font-family: monospace;">
+        <input type="text" id="otp-code-modal" placeholder="------" style="width: 100%; text-align: center; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; letter-spacing: 6px; font-size: 18px; font-family: monospace;">
       </div>
 
       <div style="margin-top: 20px; display: flex; gap: 10px;">
-        <button class="btn-save" id="btn-send-otp" style="width: 100%; padding: 12px;">Gửi mã OTP</button>
-        <button class="btn-save" id="btn-verify-otp" style="width: 100%; padding: 12px; display: none; background: var(--up);">Xác thực OTP</button>
+        <button class="btn-save" id="btn-send-otp-modal" style="width: 100%; padding: 12px;">Gửi mã OTP</button>
+        <button class="btn-save" id="btn-verify-otp-modal" style="width: 100%; padding: 12px; display: none; background: var(--up);">Xác thực OTP</button>
       </div>
     </div>
   </div>
@@ -558,51 +557,6 @@
   </style>
   <script src="script.js"></script>
   
-  <script type="module">
-  import { initializeApp } from "firebase/app";
-  import { getAuth, signInWithPhoneNumber, RecaptchaVerifier } from "firebase/auth";
-
-  // 1. Thay cấu hình Firebase Console của bạn vào đây
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-
-
-  // 3. Khởi tạo bộ xác thực reCAPTCHA chống spam của Google
-  window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-    'size': 'normal',
-    'callback': (response) => {}
-  }, auth);
-
-  let confirmationResult = null;
-
-  // XỬ LÝ NÚT XÁC THỰC MÃ OTP DO NGƯỜI DÙNG NHẬP VÀO
-  document.getElementById('btn-verify-otp').addEventListener('click', () => {
-    const code = document.getElementById('otp-code').value.trim();
-    if (code.length !== 6) {
-      alert("Vui lòng nhập đầy đủ 6 chữ số OTP!");
-      return;
-    }
-
-    confirmationResult.confirm(code)
-      .then((result) => {
-        alert("Xác thực thành công! Hệ thống Terminal đã sẵn sàng.");
-        document.getElementById('auth-modal').style.display = 'none'; // Ẩn màn hình khóa, cho phép dùng biểu đồ
-      })
-      .catch((error) => {
-        alert("Mã OTP bạn nhập không chính xác hoặc đã quá hạn! Vui lòng kiểm tra lại.");
-      });
-  });
-</script>
-
   <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { 
