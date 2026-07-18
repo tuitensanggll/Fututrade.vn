@@ -464,13 +464,17 @@
   // Nhiều nguồn dự phòng: nếu nguồn 1 bị chặn CORS/rate-limit trên môi trường host (VD GitHub Pages),
   // tự động rơi (fallback) sang nguồn kế tiếp thay vì phụ thuộc vào đúng 1 API duy nhất.
   // ⚠️ DÁN API KEY MIỄN PHÍ CỦA BẠN VÀO ĐÂY (lấy tại https://openapi.coinstats.app — đăng ký free, không cần thẻ):
-  const COINSTATS_API_KEY = 'ed9c3d6960e6737cb4f8bf0988db2008a3b252162316'; // VD: 'ab12cd34-...'
+  const COINSTATS_API_KEY = '313dc547ca709e58f70d59acdfb04abb8478274b42e2'; // VD: 'ab12cd34-...'
+  // ⚠️ DÁN API KEY MIỄN PHÍ CỦA RSS2JSON VÀO ĐÂY (lấy tại https://rss2json.com/docs — không có key sẽ bị giới hạn lượt gọi rất thấp và dễ lỗi 422/429):
+  const RSS2JSON_API_KEY = 'zxyhlg2qqvcsvg9lovek0xkvrttzwy2dxbdnr8kh'; // VD: 'abcdefg123456'
+  const rss2jsonKeyParam = RSS2JSON_API_KEY ? ('&api_key=' + encodeURIComponent(RSS2JSON_API_KEY)) : '';
 
   const NEWS_SOURCES = [
     ...(COINSTATS_API_KEY ? [{ type: 'coinstats', url: 'https://openapiv1.coinstats.app/news?limit=20' }] : []),
-    { type: 'cryptocompare', url: 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest' },
-    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20' },
-    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20' }
+    // Lưu ý: CryptoCompare (min-api.cryptocompare.com) KHÔNG hỗ trợ CORS cho request gọi trực tiếp từ trình
+    // duyệt (chính sách của họ, không phải lỗi code) — nên đã bỏ khỏi danh sách nguồn, để tránh lỗi console vô ích.
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20' + rss2jsonKeyParam },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20' + rss2jsonKeyParam }
   ];
   function parseSourceItems(type, json) {
     if (type === 'coinstats') {
