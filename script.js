@@ -42,6 +42,14 @@
   };
   function icon(name, cls) { return `<span class="ico${cls ? ' ' + cls : ''}">${ICONS[name] || ''}</span>`; }
 
+  // Binance (kể cả domain dữ liệu công khai data-api.binance.vision) không gửi header CORS cho phép
+  // trình duyệt fetch() trực tiếp từ domain GitHub Pages này (dù link vẫn mở được bình thường nếu dán
+  // vào thanh địa chỉ). Nên mọi request tới Binance phải đi qua một CORS-proxy trung gian bên dưới.
+  const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+  function binanceFetch(url) {
+    return fetch(CORS_PROXY + encodeURIComponent(url));
+  }
+
 
   let currentSymbol = localStorage.getItem('ok_symbol') || 'BTCUSDT';
   let currentInterval = localStorage.getItem('ok_interval') || '4h';
@@ -82,7 +90,7 @@
       }
     } catch (e) { /* cache lỗi thì bỏ qua, tải lại từ mạng */ }
 
-    fetch('https://data-api.binance.vision/api/v3/exchangeInfo')
+    binanceFetch('https://data-api.binance.vision/api/v3/exchangeInfo')
       .then(r => r.json())
       .then(data => {
         if (!data || !Array.isArray(data.symbols)) return;
@@ -344,7 +352,7 @@
   }
   async function fetchBinanceSentiment(symbol = currentSymbol) {
     try {
-      const response = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
+      const response = await binanceFetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
       const data = await response.json();
       if (data && data.length > 0) {
         binanceLSRatio = parseFloat(data[0].longShortRatio);
@@ -2637,7 +2645,7 @@
     if (noMoreHistoryKey === key) return Promise.resolve(false); // đã xác nhận đây là cây nến đầu tiên trong lịch sử của coin, không tải nữa
     isLoadingOlderHistory = true;
     const endTime = Math.round(candlesData[0].time * 1000) - 1; // trước cây nến cũ nhất đang có 1ms
-    return fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000&endTime=${endTime}`)
+    return binanceFetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000&endTime=${endTime}`)
       .then(r => r.json())
       .then(data => {
         isLoadingOlderHistory = false;
@@ -2706,7 +2714,7 @@
   // đã tải thêm và KHÔNG di chuyển khung nhìn (để không phá trải nghiệm đang xem giá quá khứ của người dùng).
   function fetchSyncData(isFreshLoad) {
     if (isFreshLoad) noMoreHistoryKey = null; // nến mới nhất được nạp lại từ đầu -> reset cờ "đã hết lịch sử" cho lần cuộn tiếp theo
-    fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000`)
+    binanceFetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000`)
       .then(r => r.json())
       .then(data => {
         const parsedCandles = []; const parsedVolumes = [];
@@ -2756,7 +2764,7 @@
     const reqSymbol = currentSymbol, reqInterval = currentInterval;
     if (!higherTFs.length) { htfCandlesMap = {}; if (typeof runAIAnalysis === 'function') runAIAnalysis(); return; }
     Promise.all(higherTFs.map(tf =>
-      fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${reqSymbol}&interval=${tf}&limit=300`)
+      binanceFetch(`https://data-api.binance.vision/api/v3/klines?symbol=${reqSymbol}&interval=${tf}&limit=300`)
         .then(r => r.json())
         .then(data => ({ tf, candles: Array.isArray(data) ? data.map(d => ({ time: d[0] / 1000, open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]) })) : [] }))
         .catch(() => ({ tf, candles: [] }))
