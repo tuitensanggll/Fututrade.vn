@@ -82,7 +82,7 @@
       }
     } catch (e) { /* cache lỗi thì bỏ qua, tải lại từ mạng */ }
 
-    fetch('https://data-api.binance.vision/api/v3/exchangeInfo')
+    fetch('https://api.binance.com/api/v3/exchangeInfo')
       .then(r => r.json())
       .then(data => {
         if (!data || !Array.isArray(data.symbols)) return;
@@ -133,14 +133,7 @@
   // tự động gọi thêm 1000 nến cũ hơn nữa (dùng endTime của Binance), nối vào đầu mảng, giữ nguyên vị trí đang xem.
   let isLoadingOlderHistory = false;
   let noMoreHistoryKey = null; // 'SYMBOL|interval' đã xác nhận tải hết lịch sử thật của coin đó
-  let signalsMap = new Map();
-  // ===== Module BACKTEST HIỆU SUẤT =====
-  // Duyệt lại toàn bộ tín hiệu LONG/SHORT đã quét được trên dữ liệu nến đang tải, xem giá đi tới Target
-  // hay SL trước để tính winrate/profit factor/drawdown thật — thay vì chỉ tin vào logic tạo tín hiệu.
-  let lastGeneratedSignals = [];
-  let lastGeneratedCandles = [];
-  let backtestCacheKey = null;
-  let backtestCacheResult = null;
+  let signalsMap = new Map(); 
   let currentWebSocket = null; let currentTickerWS = null; let whaleWS = null;
   let reconnectTimeout = null; let syncInterval = null;
   let isLiveSignalPreview = false; let liveAnalysisTimer = null;
@@ -464,17 +457,13 @@
   // Nhiều nguồn dự phòng: nếu nguồn 1 bị chặn CORS/rate-limit trên môi trường host (VD GitHub Pages),
   // tự động rơi (fallback) sang nguồn kế tiếp thay vì phụ thuộc vào đúng 1 API duy nhất.
   // ⚠️ DÁN API KEY MIỄN PHÍ CỦA BẠN VÀO ĐÂY (lấy tại https://openapi.coinstats.app — đăng ký free, không cần thẻ):
-  const COINSTATS_API_KEY = '313dc547ca709e58f70d59acdfb04abb8478274b42e2'; // VD: 'ab12cd34-...'
-  // ⚠️ DÁN API KEY MIỄN PHÍ CỦA RSS2JSON VÀO ĐÂY (lấy tại https://rss2json.com/docs — không có key sẽ bị giới hạn lượt gọi rất thấp và dễ lỗi 422/429):
-  const RSS2JSON_API_KEY = 'zxyhlg2qqvcsvg9lovek0xkvrttzwy2dxbdnr8kh'; // VD: 'abcdefg123456'
-  const rss2jsonKeyParam = RSS2JSON_API_KEY ? ('&api_key=' + encodeURIComponent(RSS2JSON_API_KEY)) : '';
+  const COINSTATS_API_KEY = 'ed9c3d6960e6737cb4f8bf0988db2008a3b252162316'; // VD: 'ab12cd34-...'
 
   const NEWS_SOURCES = [
     ...(COINSTATS_API_KEY ? [{ type: 'coinstats', url: 'https://openapiv1.coinstats.app/news?limit=20' }] : []),
-    // Lưu ý: CryptoCompare (min-api.cryptocompare.com) KHÔNG hỗ trợ CORS cho request gọi trực tiếp từ trình
-    // duyệt (chính sách của họ, không phải lỗi code) — nên đã bỏ khỏi danh sách nguồn, để tránh lỗi console vô ích.
-    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20' + rss2jsonKeyParam },
-    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20' + rss2jsonKeyParam }
+    { type: 'cryptocompare', url: 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest' },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20' },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20' }
   ];
   function parseSourceItems(type, json) {
     if (type === 'coinstats') {
@@ -2389,7 +2378,7 @@
           }
         }
         const tfNote = confirmingTfs.length ? `Khung lớn xác nhận LONG: ${confirmingTfs.join(', ')}.` : '';
-        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, entryIdx: i, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentUpColor });
+        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentUpColor });
       } else if (isShortEntry) {
         lastShortIdx = i;
         const stopLoss = c.close + stopDistance;
@@ -2409,7 +2398,7 @@
           }
         }
         const tfNote = confirmingTfs.length ? `Khung lớn xác nhận SHORT: ${confirmingTfs.join(', ')}.` : '';
-        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, entryIdx: i, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentDownColor });
+        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentDownColor });
       }
 
       // 2. TÍN HIỆU VOLUME ĐỘT BIẾN / CLIMAX — đã tối ưu: chỉ báo climax THẬT khi có đủ 4 điều kiện
@@ -2450,12 +2439,6 @@
       if (isFilteredBySentiment) { addSignal({ time: c.time, type: 'fng_block', label: 'AI CHẶN LỆNH', tone: 'warn', price: c.close, desc: filterReason, color: '#6b7280' }); }
     }
     
-    // Lưu toàn bộ tín hiệu vừa quét được (không lọc theo "đã xóa"/"ẩn trước thời điểm") để module
-    // Backtest phía dưới dùng lại nguyên vẹn lịch sử thật, tách biệt với việc dọn nhật ký hiển thị.
-    lastGeneratedSignals = signals;
-    lastGeneratedCandles = candlesData;
-    backtestCacheKey = null; // dữ liệu tín hiệu vừa đổi -> hủy cache backtest cũ, tính lại ở lần mở modal kế tiếp
-
     const visibleSignals = signals.filter(s => s.time >= aiIgnoreBeforeTime && !deletedLogTimes.has(s.time));
 
     // Chú thích cho mỗi cây nến có sự kiện: LONG/SHORT (AI tín hiệu), B.CLX/S.CLX + VOL+/VOL- (Wyckoff), CHẶN (AI lọc lệnh theo tâm lý)
@@ -2487,144 +2470,6 @@
     });
   }
 
-  // =========================================================
-  // MODULE BACKTEST HIỆU SUẤT — kiểm chứng thống kê thay vì chỉ tin vào logic
-  // =========================================================
-  // Với mỗi tín hiệu LONG/SHORT đã quét được (đã có entry/target/sl/entryIdx), duyệt CÁC NẾN SAU
-  // entryIdx theo đúng thứ tự thời gian thật, xem giá chạm Target trước hay chạm SL trước.
-  // Quy ước thận trọng (industry-standard): nếu CÙNG một cây nến chạm được cả Target lẫn SL (nến biên
-  // độ rộng, không biết giá chạm cái nào trước vì chỉ có OHLC chứ không có dữ liệu tick) -> tính là THUA,
-  // để không thổi phồng kết quả một cách lạc quan.
-  function simulateTrade(sig, candles) {
-    const isLong = sig.tone === 'up';
-    const stopDistance = Math.abs(sig.entry - sig.sl);
-    if (!isFinite(stopDistance) || stopDistance <= 0) return null;
-    for (let j = sig.entryIdx + 1; j < candles.length; j++) {
-      const k = candles[j];
-      const hitSL = isLong ? k.low <= sig.sl : k.high >= sig.sl;
-      const hitTP = isLong ? k.high >= sig.target : k.low <= sig.target;
-      if (hitSL && hitTP) return { outcome: 'loss', r: -1, exitIdx: j, bars: j - sig.entryIdx };
-      if (hitSL) return { outcome: 'loss', r: -1, exitIdx: j, bars: j - sig.entryIdx };
-      if (hitTP) { const r = Math.abs(sig.target - sig.entry) / stopDistance; return { outcome: 'win', r, exitIdx: j, bars: j - sig.entryIdx }; }
-    }
-    return { outcome: 'open', r: 0, exitIdx: -1, bars: candles.length - 1 - sig.entryIdx }; // lệnh còn "đang chạy", chưa chạm Target hay SL
-  }
-
-  function runBacktest() {
-    const key = currentSymbol + '|' + currentInterval + '|' + lastGeneratedCandles.length + '|' + (lastGeneratedCandles.length ? lastGeneratedCandles[lastGeneratedCandles.length - 1].time : 0);
-    if (backtestCacheKey === key && backtestCacheResult) return backtestCacheResult; // dữ liệu không đổi -> khỏi tính lại
-
-    const tradeSignals = lastGeneratedSignals.filter(s => (s.type === 'trend_long' || s.type === 'trend_short') && s.entryIdx != null);
-    const trades = tradeSignals.map(s => Object.assign({}, s, simulateTrade(s, lastGeneratedCandles))).filter(t => t.outcome);
-
-    const closed = trades.filter(t => t.outcome !== 'open');
-    const open = trades.filter(t => t.outcome === 'open');
-    const wins = closed.filter(t => t.outcome === 'win');
-    const losses = closed.filter(t => t.outcome === 'loss');
-    const longTrades = closed.filter(t => t.tone === 'up');
-    const shortTrades = closed.filter(t => t.tone === 'down');
-
-    const grossWinR = wins.reduce((a, t) => a + t.r, 0);
-    const grossLossR = losses.reduce((a, t) => a + Math.abs(t.r), 0);
-    const netR = grossWinR - grossLossR;
-    const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
-    const profitFactor = grossLossR > 0 ? grossWinR / grossLossR : (grossWinR > 0 ? Infinity : 0);
-    const avgR = closed.length ? netR / closed.length : 0;
-    const avgWinR = wins.length ? grossWinR / wins.length : 0;
-    const avgLossR = losses.length ? grossLossR / losses.length : 0;
-    const expectancy = avgR; // kỳ vọng lợi nhuận trung bình mỗi lệnh, tính theo đơn vị R (bội số rủi ro)
-
-    // Equity curve theo đơn vị R, cộng dồn theo đúng thứ tự thời gian tín hiệu xuất hiện
-    const chronological = closed.slice().sort((a, b) => a.entryIdx - b.entryIdx);
-    let cum = 0, peak = 0, maxDD = 0, curWinStreak = 0, curLossStreak = 0, maxWinStreak = 0, maxLossStreak = 0;
-    const equityCurve = [0];
-    chronological.forEach(t => {
-      cum += t.r; equityCurve.push(cum);
-      if (cum > peak) peak = cum;
-      const dd = peak - cum; if (dd > maxDD) maxDD = dd;
-      if (t.outcome === 'win') { curWinStreak++; curLossStreak = 0; if (curWinStreak > maxWinStreak) maxWinStreak = curWinStreak; }
-      else { curLossStreak++; curWinStreak = 0; if (curLossStreak > maxLossStreak) maxLossStreak = curLossStreak; }
-    });
-
-    const result = {
-      totalSignals: trades.length, closedCount: closed.length, openCount: open.length,
-      winCount: wins.length, lossCount: losses.length, winRate, profitFactor, netR, avgR, avgWinR, avgLossR, expectancy,
-      maxDrawdownR: maxDD, maxWinStreak, maxLossStreak, equityCurve,
-      longWinRate: longTrades.length ? (longTrades.filter(t => t.outcome === 'win').length / longTrades.length) * 100 : null,
-      shortWinRate: shortTrades.length ? (shortTrades.filter(t => t.outcome === 'win').length / shortTrades.length) * 100 : null,
-      longCount: longTrades.length, shortCount: shortTrades.length,
-    };
-    backtestCacheKey = key; backtestCacheResult = result;
-    return result;
-  }
-
-  // Vẽ equity curve (đường cong lợi nhuận cộng dồn theo R) bằng SVG polyline thuần, không cần thư viện chart phụ
-  function renderEquitySVG(equityCurve) {
-    if (equityCurve.length < 2) return '<div class="ai-empty" style="padding:20px;">Chưa đủ lệnh đã đóng để vẽ đường cong lợi nhuận.</div>';
-    const w = 560, h = 150, pad = 10;
-    const minV = Math.min(0, ...equityCurve), maxV = Math.max(0, ...equityCurve);
-    const range = (maxV - minV) || 1;
-    const stepX = (w - pad * 2) / (equityCurve.length - 1);
-    const toY = v => h - pad - ((v - minV) / range) * (h - pad * 2);
-    const pts = equityCurve.map((v, i) => `${(pad + i * stepX).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
-    const zeroY = toY(0).toFixed(1);
-    const last = equityCurve[equityCurve.length - 1];
-    const lineColor = last >= 0 ? 'var(--up)' : 'var(--down)';
-    return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:150px; display:block;">
-      <line x1="${pad}" y1="${zeroY}" x2="${w - pad}" y2="${zeroY}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 3"/>
-      <polyline points="${pts}" fill="none" stroke="${lineColor}" stroke-width="2"/>
-    </svg>`;
-  }
-
-  function fmtR(n) { if (!isFinite(n)) return '∞'; return (n >= 0 ? '+' : '') + n.toFixed(2) + 'R'; }
-
-  function renderBacktestModal() {
-    const body = document.getElementById('backtest-body');
-    if (!body) return;
-    if (!lastGeneratedSignals.length || lastGeneratedCandles.length < 200) {
-      body.innerHTML = '<div class="ai-empty" style="padding:30px;">Chưa đủ dữ liệu để backtest. Hãy bật AI và chờ tải xong lịch sử nến.</div>';
-      return;
-    }
-    const r = runBacktest();
-    if (!r.totalSignals) {
-      body.innerHTML = '<div class="ai-empty" style="padding:30px;">Chưa có tín hiệu LONG/SHORT nào được tạo ra trong dữ liệu đang tải để kiểm định.</div>';
-      return;
-    }
-    const wrCls = r.winRate >= 50 ? 'up' : 'down';
-    const pfCls = r.profitFactor >= 1 ? 'up' : 'down';
-    const netCls = r.netR >= 0 ? 'up' : 'down';
-    body.innerHTML = `
-      <div class="bt-scope">${icon('cpu', 'ico-inline')} ${currentSymbol} · khung ${currentInterval} · trên ${lastGeneratedCandles.length} nến đã tải (${r.closedCount} lệnh đã đóng, ${r.openCount} lệnh còn đang chạy)</div>
-      <div class="bt-stat-grid">
-        <div class="bt-stat-card"><span class="bt-stat-label">Tỉ lệ thắng</span><span class="bt-stat-value ${wrCls}">${r.winRate.toFixed(1)}%</span><span class="bt-stat-sub">${r.winCount}T / ${r.lossCount}B</span></div>
-        <div class="bt-stat-card"><span class="bt-stat-label">Profit Factor</span><span class="bt-stat-value ${pfCls}">${isFinite(r.profitFactor) ? r.profitFactor.toFixed(2) : '∞'}</span><span class="bt-stat-sub">Lãi gộp / Lỗ gộp</span></div>
-        <div class="bt-stat-card"><span class="bt-stat-label">Lợi nhuận ròng</span><span class="bt-stat-value ${netCls}">${fmtR(r.netR)}</span><span class="bt-stat-sub">Đơn vị R (bội số rủi ro)</span></div>
-        <div class="bt-stat-card"><span class="bt-stat-label">Kỳ vọng / lệnh</span><span class="bt-stat-value ${r.expectancy >= 0 ? 'up' : 'down'}">${fmtR(r.expectancy)}</span><span class="bt-stat-sub">Trung bình mỗi lệnh</span></div>
-        <div class="bt-stat-card"><span class="bt-stat-label">Sụt giảm tối đa</span><span class="bt-stat-value down">-${r.maxDrawdownR.toFixed(2)}R</span><span class="bt-stat-sub">Max Drawdown</span></div>
-        <div class="bt-stat-card"><span class="bt-stat-label">Chuỗi thắng/thua</span><span class="bt-stat-value">${r.maxWinStreak} / ${r.maxLossStreak}</span><span class="bt-stat-sub">Dài nhất liên tiếp</span></div>
-      </div>
-      <div class="bt-equity-wrap">
-        <div class="bt-equity-title">${icon('barChart', 'ico-inline')} Đường cong lợi nhuận cộng dồn (theo R)</div>
-        ${renderEquitySVG(r.equityCurve)}
-      </div>
-      <div class="bt-stat-grid" style="margin-top:14px;">
-        <div class="bt-stat-card"><span class="bt-stat-label">Winrate LONG</span><span class="bt-stat-value ${r.longWinRate === null ? '' : (r.longWinRate >= 50 ? 'up' : 'down')}">${r.longWinRate === null ? '--' : r.longWinRate.toFixed(1) + '%'}</span><span class="bt-stat-sub">${r.longCount} lệnh</span></div>
-        <div class="bt-stat-card"><span class="bt-stat-label">Winrate SHORT</span><span class="bt-stat-value ${r.shortWinRate === null ? '' : (r.shortWinRate >= 50 ? 'up' : 'down')}">${r.shortWinRate === null ? '--' : r.shortWinRate.toFixed(1) + '%'}</span><span class="bt-stat-sub">${r.shortCount} lệnh</span></div>
-      </div>
-      <div class="bt-note">${icon('shield', 'ico-inline')} Backtest chạy trên đúng công thức tạo tín hiệu hiện tại, giả định vào/thoát đúng giá Entry/Target/SL, chưa trừ phí giao dịch & trượt giá (slippage). Nếu một nến chạm cả Target lẫn SL thì tính là THUA (giả định thận trọng). Bộ lọc tâm lý đám đông (Long/Short ratio) chỉ áp dụng cho tín hiệu mới nhất nên không phản ánh trong dữ liệu lịch sử. Đây là công cụ tham khảo, không phải cam kết lợi nhuận trong tương lai.</div>
-    `;
-  }
-
-  (function bindBacktestModal() {
-    const openBtn = document.getElementById('btn-open-backtest');
-    const modal = document.getElementById('backtest-modal');
-    const closeBtn = document.getElementById('close-backtest-modal');
-    if (!openBtn || !modal) return;
-    openBtn.addEventListener('click', () => { renderBacktestModal(); modal.classList.add('show'); });
-    closeBtn.addEventListener('click', () => modal.classList.remove('show'));
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('show'); });
-  })();
-
   // ==========================================
   // 5. MAIN DATA LOOP & NETWORK DISCONNECT
   // ==========================================
@@ -2637,7 +2482,7 @@
     if (noMoreHistoryKey === key) return Promise.resolve(false); // đã xác nhận đây là cây nến đầu tiên trong lịch sử của coin, không tải nữa
     isLoadingOlderHistory = true;
     const endTime = Math.round(candlesData[0].time * 1000) - 1; // trước cây nến cũ nhất đang có 1ms
-    return fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000&endTime=${endTime}`)
+    return fetch(`https://api.binance.com/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000&endTime=${endTime}`)
       .then(r => r.json())
       .then(data => {
         isLoadingOlderHistory = false;
@@ -2706,7 +2551,7 @@
   // đã tải thêm và KHÔNG di chuyển khung nhìn (để không phá trải nghiệm đang xem giá quá khứ của người dùng).
   function fetchSyncData(isFreshLoad) {
     if (isFreshLoad) noMoreHistoryKey = null; // nến mới nhất được nạp lại từ đầu -> reset cờ "đã hết lịch sử" cho lần cuộn tiếp theo
-    fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000`)
+    fetch(`https://api.binance.com/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000`)
       .then(r => r.json())
       .then(data => {
         const parsedCandles = []; const parsedVolumes = [];
@@ -2756,7 +2601,7 @@
     const reqSymbol = currentSymbol, reqInterval = currentInterval;
     if (!higherTFs.length) { htfCandlesMap = {}; if (typeof runAIAnalysis === 'function') runAIAnalysis(); return; }
     Promise.all(higherTFs.map(tf =>
-      fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${reqSymbol}&interval=${tf}&limit=300`)
+      fetch(`https://api.binance.com/api/v3/klines?symbol=${reqSymbol}&interval=${tf}&limit=300`)
         .then(r => r.json())
         .then(data => ({ tf, candles: Array.isArray(data) ? data.map(d => ({ time: d[0] / 1000, open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]) })) : [] }))
         .catch(() => ({ tf, candles: [] }))
