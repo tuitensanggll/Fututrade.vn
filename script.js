@@ -428,7 +428,7 @@
     if (!text) return text;
     if (newsTranslationCache.has(text)) return newsTranslationCache.get(text);
     try {
-      const res = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=vi&dt=t&q=' + encodeURIComponent(text));
+      const res = await fetchWithTimeout('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=vi&dt=t&q=' + encodeURIComponent(text), undefined, 5000);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const translated = (data && Array.isArray(data[0])) ? data[0].map(seg => seg[0]).join('') : text;
@@ -449,21 +449,44 @@
     }));
     return items;
   }
+  // Timeout riêng cho mỗi request: nếu 1 nguồn bị treo (mạng chậm/CORS) thay vì chờ vô thời hạn,
+  // ta huỷ sau NEWS_FETCH_TIMEOUT_MS rồi rơi ngay sang nguồn kế tiếp — đây là nguyên nhân chính khiến
+  // trước đây tin tức "đứng hình" không hiển thị khi 1 API bị treo thay vì báo lỗi ngay.
+  const NEWS_FETCH_TIMEOUT_MS = 8000;
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || NEWS_FETCH_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...(options || {}), signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async function tryFetchJson(url, headers) {
-    const res = await fetch(url, headers ? { headers } : undefined);
+    const res = await fetchWithTimeout(url, headers ? { headers } : undefined);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
+  }
+  async function tryFetchText(url) {
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.text();
   }
   // Nhiều nguồn dự phòng: nếu nguồn 1 bị chặn CORS/rate-limit trên môi trường host (VD GitHub Pages),
   // tự động rơi (fallback) sang nguồn kế tiếp thay vì phụ thuộc vào đúng 1 API duy nhất.
   // ⚠️ DÁN API KEY MIỄN PHÍ CỦA BẠN VÀO ĐÂY (lấy tại https://openapi.coinstats.app — đăng ký free, không cần thẻ):
-  const COINSTATS_API_KEY = 'ed9c3d6960e6737cb4f8bf0988db2008a3b252162316'; // VD: 'ab12cd34-...'
+  const COINSTATS_API_KEY = '313dc547ca709e58f70d59acdfb04abb8478274b42e2';
+  const RSS2JSON_API_KEY = 'zxyhlq2gqvcsvq9lovek0xkvrttzwv2dxbdnr8kh';
 
   const NEWS_SOURCES = [
     ...(COINSTATS_API_KEY ? [{ type: 'coinstats', url: 'https://openapiv1.coinstats.app/news?limit=20' }] : []),
     { type: 'cryptocompare', url: 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest' },
-    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20' },
-    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20' }
+    // Lấy thẳng RSS gốc qua CORS-proxy (allorigins) — không lệ thuộc quota dùng-chung của rss2json.com
+    // nên đỡ bị lỗi "Too Many Requests" vào giờ cao điểm như trước.
+    { type: 'directrss', url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/'), source: 'CoinDesk' },
+    { type: 'directrss', url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://cointelegraph.com/rss'), source: 'Cointelegraph' },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/') + '&count=20&api_key=' + RSS2JSON_API_KEY },
+    { type: 'rss2json', url: 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent('https://cointelegraph.com/rss') + '&count=20&api_key=' + RSS2JSON_API_KEY }
   ];
   function parseSourceItems(type, json) {
     if (type === 'coinstats') {
@@ -507,13 +530,53 @@
     }
     return [];
   }
+  // Phân tích trực tiếp XML của RSS (dùng cho nguồn 'directrss' lấy qua CORS-proxy)
+  function parseRssXmlItems(xmlText, sourceName) {
+    try {
+      const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+      if (doc.querySelector('parsererror')) return [];
+      const nodes = Array.from(doc.querySelectorAll('item')).slice(0, 20);
+      return nodes.map(node => {
+        const get = (tag) => { const el = node.getElementsByTagName(tag)[0]; return el ? el.textContent.trim() : ''; };
+        const link = get('link');
+        const pubDate = get('pubDate');
+        const ts = Date.parse(pubDate);
+        // Ảnh minh hoạ: thử media:content, enclosure, rồi tới thẻ ảnh trong description
+        let img = '';
+        const media = node.getElementsByTagName('media:content')[0] || node.getElementsByTagName('enclosure')[0];
+        if (media && media.getAttribute) img = media.getAttribute('url') || '';
+        if (!img) {
+          const desc = get('description');
+          const m = desc.match(/<img[^>]+src=["']([^"']+)["']/i);
+          if (m) img = m[1];
+        }
+        return {
+          id: link || get('guid') || (sourceName + get('title')),
+          title: get('title').replace(/<[^>]*>/g, ''),
+          url: link || '#',
+          source: sourceName,
+          time: isNaN(ts) ? Math.floor(Date.now() / 1000) : Math.floor(ts / 1000),
+          img
+        };
+      }).filter(it => it.title);
+    } catch (e) {
+      console.warn('Lỗi phân tích RSS XML:', e);
+      return [];
+    }
+  }
   async function fetchMarketNews() {
     let lastError = null;
     for (const src of NEWS_SOURCES) {
       try {
-        const headers = src.type === 'coinstats' ? { 'X-API-KEY': COINSTATS_API_KEY } : undefined;
-        const json = await tryFetchJson(src.url, headers);
-        let items = parseSourceItems(src.type, json);
+        let items;
+        if (src.type === 'directrss') {
+          const xmlText = await tryFetchText(src.url);
+          items = parseRssXmlItems(xmlText, src.source || 'Nguồn tin');
+        } else {
+          const headers = src.type === 'coinstats' ? { 'X-API-KEY': COINSTATS_API_KEY } : undefined;
+          const json = await tryFetchJson(src.url, headers);
+          items = parseSourceItems(src.type, json);
+        }
         if (items.length) {
           items = await translateNewsItems(items);
           lastNewsItems = items;
