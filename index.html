@@ -417,7 +417,10 @@
     <div class="ai-panel">
       <div class="ai-panel-head">
         <div class="ai-panel-title"><span class="dot" style="background:var(--accent);"></span>Nhật ký FUTU ROBO Thuận Xu Hướng<span id="ai-live-status" style="font-size:10px; color:var(--text-dim); font-weight:600; margin-left:6px;"></span></div>
-        <button class="btn-clear-all" onclick="clearAllAILogs()">Xóa tất cả <span class="ico"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5A1.5 1.5 0 0110.5 3h3A1.5 1.5 0 0115 4.5V7m2 0v12.5A1.5 1.5 0 0115.5 21h-7A1.5 1.5 0 017 19.5V7h10z"/><path d="M10 11v6M14 11v6"/></svg></span></button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-backtest" id="btn-open-backtest" type="button">Hiệu suất Backtest <span class="ico"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span></button>
+          <button class="btn-clear-all" onclick="clearAllAILogs()">Xóa tất cả <span class="ico"><svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5A1.5 1.5 0 0110.5 3h3A1.5 1.5 0 0115 4.5V7m2 0v12.5A1.5 1.5 0 0115.5 21h-7A1.5 1.5 0 017 19.5V7h10z"/><path d="M10 11v6M14 11v6"/></svg></span></button>
+        </div>
       </div>
       <div class="ai-signal-list" id="ai-signal-list"><div class="ai-empty" id="ai-empty">Đang phân tích...</div></div>
     </div>
@@ -504,6 +507,15 @@
       <div style="margin-top: 20px; display: flex; gap: 10px;">
         <button class="btn-save" id="btn-send-otp" style="width: 100%; padding: 12px;">Gửi mã OTP</button>
         <button class="btn-save" id="btn-verify-otp" style="width: 100%; padding: 12px; display: none; background: var(--up);">Xác thực OTP</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="backtest-modal">
+    <div class="modal-box bt-modal-box">
+      <div class="modal-title">Hiệu suất Backtest FUTU ROBO <button class="close-btn" id="close-backtest-modal" type="button">&times;</button></div>
+      <div id="backtest-body" class="bt-body">
+        <div class="ai-empty" style="padding:30px;">Đang tính toán...</div>
       </div>
     </div>
   </div>
