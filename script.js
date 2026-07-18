@@ -82,7 +82,7 @@
       }
     } catch (e) { /* cache lỗi thì bỏ qua, tải lại từ mạng */ }
 
-    fetch('https://api.binance.com/api/v3/exchangeInfo')
+    fetch('https://data-api.binance.vision/api/v3/exchangeInfo')
       .then(r => r.json())
       .then(data => {
         if (!data || !Array.isArray(data.symbols)) return;
@@ -2633,7 +2633,7 @@
     if (noMoreHistoryKey === key) return Promise.resolve(false); // đã xác nhận đây là cây nến đầu tiên trong lịch sử của coin, không tải nữa
     isLoadingOlderHistory = true;
     const endTime = Math.round(candlesData[0].time * 1000) - 1; // trước cây nến cũ nhất đang có 1ms
-    return fetch(`https://api.binance.com/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000&endTime=${endTime}`)
+    return fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000&endTime=${endTime}`)
       .then(r => r.json())
       .then(data => {
         isLoadingOlderHistory = false;
@@ -2702,7 +2702,7 @@
   // đã tải thêm và KHÔNG di chuyển khung nhìn (để không phá trải nghiệm đang xem giá quá khứ của người dùng).
   function fetchSyncData(isFreshLoad) {
     if (isFreshLoad) noMoreHistoryKey = null; // nến mới nhất được nạp lại từ đầu -> reset cờ "đã hết lịch sử" cho lần cuộn tiếp theo
-    fetch(`https://api.binance.com/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000`)
+    fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${currentSymbol}&interval=${currentInterval}&limit=1000`)
       .then(r => r.json())
       .then(data => {
         const parsedCandles = []; const parsedVolumes = [];
@@ -2752,7 +2752,7 @@
     const reqSymbol = currentSymbol, reqInterval = currentInterval;
     if (!higherTFs.length) { htfCandlesMap = {}; if (typeof runAIAnalysis === 'function') runAIAnalysis(); return; }
     Promise.all(higherTFs.map(tf =>
-      fetch(`https://api.binance.com/api/v3/klines?symbol=${reqSymbol}&interval=${tf}&limit=300`)
+      fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${reqSymbol}&interval=${tf}&limit=300`)
         .then(r => r.json())
         .then(data => ({ tf, candles: Array.isArray(data) ? data.map(d => ({ time: d[0] / 1000, open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]) })) : [] }))
         .catch(() => ({ tf, candles: [] }))
