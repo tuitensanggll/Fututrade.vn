@@ -35,6 +35,8 @@
     pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 015 5c0 3.5-5 11-5 11S7 10.5 7 7a5 5 0 015-5z"/><circle cx="12" cy="7" r="1.6"/></svg>',
     checkCircle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.6 2.6L16 9.4"/></svg>',
     whale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 13c0-3.3 3-5.9 6.9-5.9 4 0 7.4 1.8 9.8 4.2.7.8 1.9 1 2.8.4-.4 1.6-1.7 2.6-3.1 2.7.5.9 1.6 1.4 2.9 1.3-1 1.4-2.7 2-4.4 1.8-2 1.9-5.1 3.1-8.3 2.8-4-.4-6.6-3.4-6.6-7.3z"/><circle cx="6.7" cy="10.4" r="0.7" fill="currentColor" stroke="none"/><path d="M9 17.2c-1.5.6-3.1.5-4.4-.4"/></svg>',
+    shark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 14.5c2.6-4.5 6.4-7 10.7-7 4 0 7.6 1.7 9.4 4.4-1.4.9-3 1.3-4.6 1.1.9 1 2.1 1.6 3.5 1.6-1.4 1.6-3.6 2.2-5.7 1.5-2.1 1.6-5.1 2.2-8.1 1.4-2-.5-3.8-1.7-5.2-3z"/><path d="M11 8.4 12.6 4l1.6 4.6"/><circle cx="6.6" cy="13.6" r="0.7" fill="currentColor" stroke="none"/></svg>',
+    dolphin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 16c1-5.5 5-10.5 11.3-10.8 2-.1 4 .6 4.9 2.3.8 1.5.2 3.2-1.3 3.9-1.3.6-2.7.3-3.6-.7-.3 2-1.5 3.8-3.3 5-2.2 1.5-5 1.9-7.5 1.1z"/><path d="M16.4 8.4c1.3-.3 2.6-.1 3.7.6" /><circle cx="15.6" cy="7.6" r="0.7" fill="currentColor" stroke="none"/></svg>',
     dot: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
     trendFlat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 12l5-5M3 12l5 5M21 12l-5-5M21 12l-5 5"/></svg>',
     alertTriangle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2L22 20.5H2z"/><path d="M12 9.5v5.2"/><circle cx="12" cy="17.8" r="0.9" fill="currentColor" stroke="none"/></svg>',
@@ -100,6 +102,28 @@
   }
   loadMarketSymbols();
 
+  // ==========================================
+  // KHỐI LƯỢNG GIAO DỊCH 24H THỰC TẾ của TỪNG coin — dùng để tự tính ngưỡng "Cá Heo" hợp lý theo
+  // đúng thanh khoản hiện tại của từng coin (xem getCoinBaseline bên dưới), thay vì 3 mức cố định
+  // dễ lỗi thời khi thị trường biến động (coin tăng/giảm thanh khoản theo thời gian).
+  // ==========================================
+  let symbolQuoteVolume = new Map(); // symbol -> khối lượng 24h tính bằng USDT (quoteVolume)
+  function fetchAllQuoteVolumes() {
+    fetch('https://api.binance.com/api/v3/ticker/24hr')
+      .then(r => r.json())
+      .then(data => {
+        if (!Array.isArray(data)) return;
+        data.forEach(t => {
+          if (!t.symbol || !t.symbol.endsWith('USDT')) return;
+          const v = parseFloat(t.quoteVolume);
+          if (v > 0) symbolQuoteVolume.set(t.symbol, v);
+        });
+      })
+      .catch(err => console.log('Không tải được khối lượng 24h toàn thị trường:', err));
+  }
+  fetchAllQuoteVolumes();
+  setInterval(fetchAllQuoteVolumes, 5 * 60 * 1000); // khối lượng đổi liên tục -> làm mới mỗi 5 phút
+
   
   let whaleLogs = JSON.parse(localStorage.getItem('ok_whale_logs') || '[]');
   // Theo yêu cầu: Nhật ký Cá Mập được LƯU MÃI MÃI, không tự động xóa bớt theo thời gian/số lượng.
@@ -121,9 +145,10 @@
     }
   }
 
-  let whaleLarge = parseFloat(localStorage.getItem('ok_whale_large')) || 500000;
-  let whaleMid = parseFloat(localStorage.getItem('ok_whale_mid')) || 100000;
-  let whaleSmall = parseFloat(localStorage.getItem('ok_whale_small')) || 30000;
+  // Hệ số ảnh hưởng thị trường (k) và ngưỡng sàn — dùng để tính ngưỡng "Cá Heo" ĐỘNG cho từng coin
+  // theo khối lượng giao dịch 24h thực tế: baseline = k * sqrt(khối lượng 24h), có sàn tối thiểu.
+  let whaleImpactFactor = parseFloat(localStorage.getItem('ok_whale_factor')) || 3.5;
+  let whaleFloor = parseFloat(localStorage.getItem('ok_whale_floor')) || 5000;
   let aiVolMult = parseFloat(localStorage.getItem('ok_ai_vol')) || 2.5;
 
   let candlesData = []; let volumesData = [];
@@ -603,25 +628,62 @@
   setInterval(() => { if (lastNewsItems.length) renderNewsList(lastNewsItems, true); }, 30000);
 
   // Cài đặt Modal Events
-  function getWhaleThreshold(symbol) {
+  // Phân loại "cá" = (1) xác định coin thuộc nhóm nào (Top/Vừa/Cỏ) để lấy mức NỀN phù hợp,
+  // rồi (2) nhân hệ số lên để ra 3 bậc cá trong CHÍNH nhóm coin đó. Nhờ vậy $30K trên 1 coin cỏ
+  // vẫn được tính là "Cá Heo" (đáng chú ý với coin cỏ), còn trên BTC phải ≥500K mới được tính —
+  // tránh tình trạng lệnh $30K trên BTC (xảy ra liên tục) làm log bị spam vô nghĩa.
+  const FISH_TIERS = [
+    { key: 'whale', name: 'Cá Voi', icon: 'whale', color: '#c084fc', mult: 10 },  // 10x mức nền của coin
+    { key: 'shark', name: 'Cá Mập', icon: 'shark', color: '#ffc93c', mult: 3 },   // 3x mức nền của coin
+    { key: 'dolphin', name: 'Cá Heo', icon: 'dolphin', color: '#38bdf8', mult: 1 } // đúng bằng mức nền (ngưỡng tối thiểu để được ghi nhận)
+  ];
+  // Mức nền dự phòng (chỉ dùng trong lúc CHỜ tải xong khối lượng 24h thực — xem fetchAllQuoteVolumes),
+  // giữ nguyên giá trị mặc định cũ để không có "khoảng trống" thiếu ngưỡng ngay khi vừa mở trang.
+  const FALLBACK_BASELINE = { top: 500000, mid: 100000, small: 30000 };
+  const FALLBACK_MID_CAPS = ['SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'LINKUSDT', 'DOTUSDT', 'MATICUSDT', 'LTCUSDT'];
+
+  // Ngưỡng "Cá Heo" của MỖI coin được tính ĐỘNG theo khối lượng giao dịch 24h thực tế của chính coin
+  // đó: baseline = k * sqrt(volume24h), theo quy luật ảnh hưởng giá kiểu căn bậc hai (square-root price
+  // impact) — một lệnh có cùng % TÁC ĐỘNG lên giá thường tỉ lệ với căn bậc hai của khối lượng thị trường,
+  // không phải tỉ lệ thuận tuyến tính. Nhờ vậy: BTC/ETH thanh khoản khổng lồ cần lệnh rất to mới đáng chú ý,
+  // coin cỏ thanh khoản mỏng thì lệnh nhỏ hơn nhiều đã có thể coi là "cá" — và ngưỡng luôn tự cập nhật theo
+  // đúng thanh khoản THỰC TẾ hiện tại của từng coin, không còn phụ thuộc danh sách nhóm coin cố định/lỗi thời.
+  function getCoinBaseline(symbol) {
     const s = symbol.toUpperCase();
-    if (s.includes('BTC') || s.includes('ETH')) return whaleLarge;
-    const midCaps = ['SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'LINKUSDT', 'DOTUSDT', 'MATICUSDT', 'LTCUSDT'];
-    if (midCaps.includes(s)) return whaleMid; return whaleSmall;
+    const vol = symbolQuoteVolume.get(s);
+    if (vol && vol > 0) return Math.max(whaleFloor, whaleImpactFactor * Math.sqrt(vol));
+    // Chưa tải xong khối lượng 24h thực (vừa mở trang) -> tạm dùng phân loại tĩnh dự phòng
+    if (s.includes('BTC') || s.includes('ETH')) return FALLBACK_BASELINE.top;
+    if (FALLBACK_MID_CAPS.includes(s)) return FALLBACK_BASELINE.mid;
+    return FALLBACK_BASELINE.small;
   }
+  function getFishTier(usd, symbol) {
+    const base = getCoinBaseline(symbol);
+    for (const t of FISH_TIERS) { if (usd >= base * t.mult) return t; } // duyệt từ bậc cao (x10) xuống thấp (x1)
+    return null; // Dưới cả mức nền -> quá nhỏ so với coin này, không ghi nhận
+  }
+  function fishTierByKey(key) { return FISH_TIERS.find(t => t.key === key) || FISH_TIERS[1]; }
   const modal = document.getElementById('settings-modal');
   document.getElementById('btn-settings').addEventListener('click', () => {
-    document.getElementById('set-whale-large').value = whaleLarge; document.getElementById('set-whale-mid').value = whaleMid;
-    document.getElementById('set-whale-small').value = whaleSmall; document.getElementById('set-ai-vol').value = aiVolMult;
+    document.getElementById('set-whale-factor').value = whaleImpactFactor;
+    document.getElementById('set-whale-floor').value = whaleFloor;
+    document.getElementById('set-ai-vol').value = aiVolMult;
     modal.classList.add('show');
   });
   const closeModal = () => modal.classList.remove('show');
   document.getElementById('close-modal').addEventListener('click', closeModal); document.getElementById('btn-cancel-modal').addEventListener('click', closeModal);
   document.getElementById('btn-save-modal').addEventListener('click', () => {
-    whaleLarge = parseFloat(document.getElementById('set-whale-large').value); whaleMid = parseFloat(document.getElementById('set-whale-mid').value);
-    whaleSmall = parseFloat(document.getElementById('set-whale-small').value); aiVolMult = parseFloat(document.getElementById('set-ai-vol').value);
-    localStorage.setItem('ok_whale_large', whaleLarge); localStorage.setItem('ok_whale_mid', whaleMid);
-    localStorage.setItem('ok_whale_small', whaleSmall); localStorage.setItem('ok_ai_vol', aiVolMult);
+    const newFactor = parseFloat(document.getElementById('set-whale-factor').value);
+    const newFloor = parseFloat(document.getElementById('set-whale-floor').value);
+    const newAiVol = parseFloat(document.getElementById('set-ai-vol').value);
+    if (isNaN(newFactor) || newFactor <= 0 || isNaN(newFloor) || newFloor < 0 || isNaN(newAiVol) || newAiVol <= 0) {
+      alert('Giá trị không hợp lệ: Hệ số ảnh hưởng phải > 0, Ngưỡng tối thiểu phải ≥ 0, Độ bùng nổ Vol AI phải > 0.');
+      return;
+    }
+    whaleImpactFactor = newFactor; whaleFloor = newFloor; aiVolMult = newAiVol;
+    localStorage.setItem('ok_whale_factor', whaleImpactFactor);
+    localStorage.setItem('ok_whale_floor', whaleFloor);
+    localStorage.setItem('ok_ai_vol', aiVolMult);
     closeModal(); runAIAnalysis();
   });
 
@@ -2198,30 +2260,166 @@
   attachCrosshairSync(chartRSI, 'rsi');
   attachPanEndCrosshairFix('price'); attachPanEndCrosshairFix('volume'); attachPanEndCrosshairFix('rsi');
 
+  // Bộ lọc theo loại cá trên bảng Nhật ký Lệnh Cá Mập ('all' | 'whale' | 'shark' | 'dolphin')
+  let whaleFilterTier = localStorage.getItem('ok_whale_filter') || 'all';
+
+  // =========================================================
+  // ICON CÁ TRỰC TIẾP TRÊN CÂY NẾN — hiển thị NGAY trên biểu đồ (không chỉ trong nhật ký) đúng
+  // cây nến & đúng vị trí (bên dưới nến = lệnh MUA, bên trên nến = lệnh BÁN) mà cá heo/mập/voi
+  // vừa khớp lệnh. Có bộ lọc RIÊNG (độc lập với bộ lọc của bảng nhật ký ở trên) để người dùng
+  // tùy chỉnh chỉ xem 1 loại cá hoặc xem tất cả ngay trên biểu đồ.
+  // =========================================================
+  const FISH_EMOJI = { whale: '🐋', shark: '🦈', dolphin: '🐬' };
+  // Đã đổi từ chọn-1-lúc-1-loại sang ĐA LỰA CHỌN: mỗi nút (Cá Heo/Cá Mập/Cá Voi) tự bật/tắt độc
+  // lập, không loại trừ nhau -> có thể bật cùng lúc 2 (hoặc cả 3) loại để xem chung trên biểu đồ.
+  const ALL_FISH_KEYS = FISH_TIERS.map(t => t.key); // ['whale','shark','dolphin']
+  let chartWhaleActiveTiers = (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ok_whale_chart_filter_v2') || 'null');
+      if (Array.isArray(saved) && saved.length) return new Set(saved.filter(k => ALL_FISH_KEYS.includes(k)));
+    } catch (e) {}
+    return new Set(ALL_FISH_KEYS); // mặc định: bật cả 3 loại (tương đương "Tất cả")
+  })();
+  function saveChartWhaleActiveTiers() { localStorage.setItem('ok_whale_chart_filter_v2', JSON.stringify([...chartWhaleActiveTiers])); }
+  let chartWhaleMarkersEnabled = localStorage.getItem('ok_whale_chart_markers_on') !== '0'; // mặc định BẬT
+  let lastAiMarkers = []; // cache tín hiệu AI hiện tại, để gộp lại với icon cá mỗi khi 1 trong 2 nguồn thay đổi
+
+  // Gộp tín hiệu AI (mũi tên LONG/SHORT, B.CLX/S.CLX, VOL+/-, CHẶN) + icon cá (nếu đang bật) rồi
+  // vẽ 1 lần lên candleSeriesMarkers — tránh việc 2 nguồn markers ghi đè lẫn nhau.
+  function applyAllChartMarkers() {
+    const whaleMarkers = chartWhaleMarkersEnabled ? buildWhaleCandleMarkers() : [];
+    const merged = lastAiMarkers.concat(whaleMarkers);
+    merged.sort((a, b) => a.time - b.time);
+    candleSeriesMarkers.setMarkers(merged);
+  }
+
+  // Gom các lệnh cá (đã lưu mãi mãi trong whaleLogs) của ĐÚNG coin đang xem vào đúng cây nến của
+  // khung thời gian hiện tại (currentInterval), rồi tạo 1 marker nhỏ mỗi (cây nến, loại cá, chiều mua/bán).
+  // Nhiều lệnh cùng loại/cùng chiều trong 1 cây nến -> gộp lại thành 1 icon kèm "x{số lệnh}" thay vì chồng chất.
+  function buildWhaleCandleMarkers() {
+    if (!candlesDataMap.size || !chartWhaleActiveTiers.size) return [];
+    const isec = intervalSeconds();
+    const buckets = new Map(); // key: "candleTime|tier|side" -> {time, tier, isBuy, count, maxUsd}
+    for (const log of whaleLogs) {
+      if (log.symbol !== currentSymbol) continue;
+      const tier = log.tier || 'shark'; // log cũ chưa có field tier -> coi như Cá Mập để tương thích ngược
+      if (!chartWhaleActiveTiers.has(tier)) continue;
+      const tSec = Math.floor(log.time / 1000);
+      const candleTime = Math.floor(tSec / isec) * isec;
+      if (!candlesDataMap.has(candleTime)) continue; // ngoài phạm vi nến đã tải -> bỏ qua, tránh lỗi vẽ marker "treo"
+      const key = candleTime + '|' + tier + '|' + (log.isBuy ? 'b' : 's');
+      let b = buckets.get(key);
+      if (!b) { b = { time: candleTime, tier, isBuy: log.isBuy, count: 0, maxUsd: 0 }; buckets.set(key, b); }
+      b.count++; if (log.usd > b.maxUsd) b.maxUsd = log.usd;
+    }
+    const markers = [];
+    buckets.forEach(b => {
+      const tierDef = fishTierByKey(b.tier);
+      const emoji = FISH_EMOJI[b.tier] || '🐋';
+      markers.push({
+        time: b.time,
+        position: b.isBuy ? 'belowBar' : 'aboveBar', // MUA vẽ dưới nến, BÁN vẽ trên nến — cùng quy ước với tín hiệu AI
+        color: tierDef.color,
+        shape: 'circle',
+        size: 0.75,
+        text: emoji + (b.count > 1 ? ' x' + b.count : '')
+      });
+    });
+    return markers;
+  }
+
+  function initChartWhaleFilterBar() {
+    const bar = document.getElementById('chart-whale-filter-row');
+    if (!bar || bar.childElementCount) return;
+    // Nút "Tất cả" giờ là phím tắt bật/tắt hết 3 loại cùng lúc, không còn là 1 lựa chọn riêng loại trừ 3 nút kia.
+    const renderActive = () => {
+      bar.querySelectorAll('.whale-filter-btn[data-tier]').forEach(b => b.classList.toggle('active', chartWhaleActiveTiers.has(b.getAttribute('data-tier'))));
+      const allBtn = bar.querySelector('.whale-filter-btn[data-all]');
+      if (allBtn) allBtn.classList.toggle('active', chartWhaleActiveTiers.size === ALL_FISH_KEYS.length);
+    };
+    bar.innerHTML = `<button class="whale-filter-btn" data-all="1" title="Bật/tắt cả 3 loại cùng lúc"><span>Tất cả</span></button>`
+      + FISH_TIERS.map(o => `<button class="whale-filter-btn" data-tier="${o.key}" style="--tier-color:${o.color}">${icon(o.icon)}<span>${o.name}</span></button>`).join('');
+    renderActive();
+    bar.querySelector('[data-all]').addEventListener('click', () => {
+      chartWhaleActiveTiers = chartWhaleActiveTiers.size === ALL_FISH_KEYS.length ? new Set() : new Set(ALL_FISH_KEYS);
+      saveChartWhaleActiveTiers(); renderActive(); applyAllChartMarkers();
+    });
+    bar.querySelectorAll('.whale-filter-btn[data-tier]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.getAttribute('data-tier');
+        // Click vào 1 nút chỉ bật/tắt riêng nút đó — có thể bật cùng lúc bao nhiêu loại tùy thích,
+        // ví dụ chỉ cần Cá Mập + Cá Voi (bỏ Cá Heo) thì bấm để 2 nút đó sáng, 1 nút kia tắt.
+        if (chartWhaleActiveTiers.has(key)) chartWhaleActiveTiers.delete(key); else chartWhaleActiveTiers.add(key);
+        saveChartWhaleActiveTiers(); renderActive(); applyAllChartMarkers();
+      });
+    });
+  }
+  function refreshWhaleMarkerToggleBtn() {
+    const btn = document.getElementById('btn-toggle-whale-markers');
+    if (!btn) return;
+    btn.classList.toggle('off', !chartWhaleMarkersEnabled);
+    btn.innerHTML = `<span class="ico">${ICONS[chartWhaleMarkersEnabled ? 'eye' : 'eyeOff']}</span><span class="btn-txt">${chartWhaleMarkersEnabled ? 'Hiện' : 'Ẩn'}</span>`;
+  }
+  (function initChartWhaleMarkerToggle() {
+    const btn = document.getElementById('btn-toggle-whale-markers');
+    if (!btn) return;
+    refreshWhaleMarkerToggleBtn();
+    btn.addEventListener('click', () => {
+      chartWhaleMarkersEnabled = !chartWhaleMarkersEnabled;
+      localStorage.setItem('ok_whale_chart_markers_on', chartWhaleMarkersEnabled ? '1' : '0');
+      refreshWhaleMarkerToggleBtn();
+      applyAllChartMarkers();
+    });
+  })();
+  initChartWhaleFilterBar();
+
+  function initWhaleFilterBar() {
+    const list = document.getElementById('whale-log-list');
+    if (!list || document.getElementById('whale-filter-row')) return;
+    const bar = document.createElement('div');
+    bar.id = 'whale-filter-row'; bar.className = 'whale-filter-row';
+    const options = [{ key: 'all', name: 'Tất cả' }, ...FISH_TIERS];
+    bar.innerHTML = options.map(o => `<button class="whale-filter-btn${whaleFilterTier === o.key ? ' active' : ''}" data-tier="${o.key}"${o.color ? ` style="--tier-color:${o.color}"` : ''}>${o.icon ? icon(o.icon) : ''}<span>${o.name}</span></button>`).join('');
+    list.parentNode.insertBefore(bar, list);
+    bar.querySelectorAll('.whale-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        whaleFilterTier = btn.getAttribute('data-tier');
+        localStorage.setItem('ok_whale_filter', whaleFilterTier);
+        bar.querySelectorAll('.whale-filter-btn').forEach(b => b.classList.toggle('active', b === btn));
+        renderWhaleLogs();
+      });
+    });
+  }
   function renderWhaleLogs() {
     const list = document.getElementById('whale-log-list'); list.innerHTML = '';
     // Chỉ hiển thị nhật ký của đúng coin đang xem — dữ liệu các coin khác vẫn được ghi nhận
     // ở nền (xem startMarketWhaleWatcher) nhưng không hiện ra cho tới khi người dùng chuyển sang coin đó.
-    const coinLogs = whaleLogs.filter(log => log.symbol === currentSymbol);
-    if (coinLogs.length === 0) { list.innerHTML = `<div class="ai-empty">Chưa có dữ liệu cá mập cho ${currentSymbol.replace('USDT','')}...</div>`; return; }
+    // Log cũ (trước khi có phân loại) không có field `tier` -> coi như "Cá Mập" để tương thích ngược.
+    const coinLogs = whaleLogs.filter(log => log.symbol === currentSymbol && (whaleFilterTier === 'all' || (log.tier || 'shark') === whaleFilterTier));
+    if (coinLogs.length === 0) { list.innerHTML = `<div class="ai-empty">Chưa có dữ liệu cá ${whaleFilterTier === 'all' ? '' : fishTierByKey(whaleFilterTier).name.toLowerCase() + ' '}cho ${currentSymbol.replace('USDT','')}...</div>`; return; }
     const recent = coinLogs.slice().reverse();
     recent.forEach(log => {
+      const tierDef = fishTierByKey(log.tier || 'shark');
       const row = document.createElement('div'); row.className = 'signal-row';
-      const tone = log.isBuy ? 'up' : 'down'; const label = log.isBuy ? 'CÁ MẬP MUA' : 'CÁ MẬP BÁN';
-      row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge-wrap"><span class="signal-eyebrow">DÒNG TIỀN LỚN</span><div class="signal-badge ${tone}">${icon('whale')}<span class="lbl">${label}</span></div></div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtFullDateTime(log.time)}</span><span class="signal-price" style="color:var(--${tone}); font-weight:700">${fmtVol(log.usd)} USDT</span></div><div class="signal-desc">Coin: <b>${log.symbol}</b> ở mức giá <b>${fmt(log.price)}</b></div></div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${log.time}, true)" title="Xóa">${icon('x')}</button></div>`;
+      const tone = log.isBuy ? 'up' : 'down'; const label = `${tierDef.name.toUpperCase()} ${log.isBuy ? 'MUA' : 'BÁN'}`;
+      row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge-wrap"><span class="signal-eyebrow" style="color:${tierDef.color}">${tierDef.name.toUpperCase()}</span><div class="signal-badge ${tone}">${icon(tierDef.icon)}<span class="lbl">${label}</span></div></div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtFullDateTime(log.time)}</span><span class="signal-price" style="color:var(--${tone}); font-weight:700">${fmtVol(log.usd)} USDT</span></div><div class="signal-desc">Coin: <b>${log.symbol}</b> ở mức giá <b>${fmt(log.price)}</b></div></div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${log.time}, true)" title="Xóa">${icon('x')}</button></div>`;
       list.appendChild(row);
     });
   }
+  initWhaleFilterBar();
   renderWhaleLogs();
 
-  function showWhaleAlert(isBuy, usdAmount, price, symbol) {
+  function showWhaleAlert(isBuy, usdAmount, price, symbol, tierKey) {
+    const tierDef = fishTierByKey(tierKey);
     const container = document.getElementById('toast-container'); const toast = document.createElement('div');
     toast.className = `whale-toast ${isBuy ? 'buy' : 'sell'}`;
-    toast.innerHTML = `<div class="whale-icon">${isBuy ? icon('whale') + icon('trendUp') : icon('whale') + icon('trendDown')}</div><div class="whale-content"><div class="whale-title">${isBuy ? 'CÁ MẬP MUA' : 'CÁ MẬP BÁN'}</div><div class="whale-desc">${fmtVol(usdAmount)} USDT ở giá ${fmt(price)}</div><div class="whale-time">${fmtFullDateTime(Date.now())}</div></div>`;
+    const title = `${tierDef.name.toUpperCase()} ${isBuy ? 'MUA' : 'BÁN'}`;
+    toast.innerHTML = `<div class="whale-icon">${isBuy ? icon(tierDef.icon) + icon('trendUp') : icon(tierDef.icon) + icon('trendDown')}</div><div class="whale-content"><div class="whale-title">${title}</div><div class="whale-desc">${fmtVol(usdAmount)} USDT ở giá ${fmt(price)}</div><div class="whale-time">${fmtFullDateTime(Date.now())}</div></div>`;
     container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show'));
     setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 6000);
-    whaleLogs.push({ time: Date.now(), isBuy, usd: usdAmount, price, symbol });
+    whaleLogs.push({ time: Date.now(), isBuy, usd: usdAmount, price, symbol, tier: tierDef.key });
     persistWhaleLogsSafe(); renderWhaleLogs();
+    applyAllChartMarkers(); // vẽ ngay icon cá lên đúng cây nến hiện tại, không cần chờ vòng phân tích AI kế tiếp
   }
 
   // ==========================================
@@ -2259,9 +2457,9 @@
         // bỏ qua ở đây để tránh ghi trùng lệnh 2 lần.
         if (symbol === currentSymbol) return;
         const p = parseFloat(d.p); const q = parseFloat(d.q); const isBuy = !d.m; const usd = p * q;
-        const dynamicThreshold = getWhaleThreshold(symbol);
-        if (usd >= dynamicThreshold) {
-          whaleLogs.push({ time: Date.now(), isBuy, usd, price: p, symbol });
+        const tier = getFishTier(usd, symbol);
+        if (tier) {
+          whaleLogs.push({ time: Date.now(), isBuy, usd, price: p, symbol, tier: tier.key });
           persistWhaleLogsThrottled();
           // Không hiện toast và không vẽ lại danh sách ở đây vì coin này không đang được xem —
           // tránh giật máy/spam. Danh sách sẽ tự hiện đúng dữ liệu ngay khi đổi sang coin đó (xem updateChart).
@@ -2298,6 +2496,96 @@
     return atr;
   }
   function emaSlopeSignal(emaArr, lookback){ const n = emaArr.length; if (n <= lookback) return 0; const diff = (emaArr[n - 1] - emaArr[n - 1 - lookback]) / emaArr[n - 1 - lookback]; if (diff > 0.001) return 1; if (diff < -0.001) return -1; return 0; }
+
+  // =========================================================
+  // PHÂN KỲ RSI/GIÁ — điều kiện xác nhận bắt buộc cho tín hiệu ĐẢO CHIỀU (nâng cấp từ climax cảnh báo đơn thuần
+  // thành tín hiệu MUA/BÁN đầy đủ). Quét NGƯỢC trong khoảng [i-lookback, i-minGap] để tìm đỉnh/đáy giá gần nhất
+  // trước nến hiện tại, rồi so RSI tại đó với RSI hiện tại:
+  //   - Phân kỳ GIẢM (bearish): giá tạo đỉnh MỚI CAO HƠN nhưng RSI lại THẤP HƠN đỉnh RSI trước đó -> lực mua đuối,
+  //     xác nhận cho Buying Climax (cảnh báo đỉnh -> tín hiệu BÁN đảo chiều).
+  //   - Phân kỳ TĂNG (bullish): giá tạo đáy MỚI THẤP HƠN nhưng RSI lại CAO HƠN đáy RSI trước đó -> lực bán đuối,
+  //     xác nhận cho Selling Climax (cảnh báo đáy -> tín hiệu MUA đảo chiều).
+  // =========================================================
+  function detectDivergence(candles, rsiArr, i, lookback = 25, minGap = 5) {
+    const start = Math.max(0, i - lookback);
+    const end = i - minGap;
+    if (end <= start) return { bearish: false, bullish: false };
+    let priorHighIdx = -1, priorHigh = -Infinity;
+    let priorLowIdx = -1, priorLow = Infinity;
+    for (let j = start; j <= end; j++) {
+      if (candles[j].high > priorHigh) { priorHigh = candles[j].high; priorHighIdx = j; }
+      if (candles[j].low < priorLow) { priorLow = candles[j].low; priorLowIdx = j; }
+    }
+    const bearish = priorHighIdx >= 0 && candles[i].high >= priorHigh && rsiArr[i] < rsiArr[priorHighIdx];
+    const bullish = priorLowIdx >= 0 && candles[i].low <= priorLow && rsiArr[i] > rsiArr[priorLowIdx];
+    return { bearish, bullish };
+  }
+
+  // R:R cố định cho tín hiệu ĐẢO CHIỀU (climax đã xác nhận phân kỳ) — thấp hơn tín hiệu thuận xu hướng vì đây là
+  // lệnh NGƯỢC xu hướng chính, rủi ro thất bại cao hơn nên chốt lời gần hơn tương ứng.
+  const REVERSAL_RR = 1.5;
+
+  // =========================================================
+  // BACKTEST NỘI BỘ — mô phỏng tiến trên chính dữ liệu lịch sử đã tải để tính tỷ lệ thắng & R trung bình
+  // cho từng loại tín hiệu (hiển thị ở bảng thống kê). Với mỗi tín hiệu có entry/target/SL, quét TIẾN tối đa
+  // BACKTEST_MAX_BARS nến kế tiếp xem Target hay Stop Loss bị chạm trước. Nếu cả 2 cùng nằm trong 1 nến (không
+  // rõ mốc nào chạm trước) hoặc lệnh chưa đóng trong phạm vi quét, xử lý theo hướng THẬN TRỌNG (tính là thua
+  // hoặc loại khỏi thống kê) để không thổi phồng tỷ lệ thắng.
+  // =========================================================
+  const BACKTEST_MAX_BARS = 150;
+  function simulateSignalOutcome(idx, entry, target, sl, isLong) {
+    if (!candlesData.length) return null;
+    const lastIdx = Math.min(candlesData.length - 1, idx + BACKTEST_MAX_BARS);
+    for (let k = idx + 1; k <= lastIdx; k++) {
+      const kc = candlesData[k];
+      const hitSL = isLong ? kc.low <= sl : kc.high >= sl;
+      const hitTP = isLong ? kc.high >= target : kc.low <= target;
+      if (hitSL) return -1; // Giả định bất lợi khi cả 2 cùng chạm trong 1 nến -> tính là thua cho an toàn
+      if (hitTP) return isLong ? (target - entry) / (entry - sl) : (entry - target) / (sl - entry);
+    }
+    return null; // chưa đóng lệnh trong phạm vi quét -> loại khỏi thống kê, không tính thắng/thua
+  }
+  const STAT_SIGNAL_TYPES = [
+    { type: 'trend_long', label: 'MUA - LONG', tone: 'up' },
+    { type: 'trend_short', label: 'BÁN - SHORT', tone: 'down' },
+    { type: 'reversal_long', label: 'MUA - ĐẢO CHIỀU', tone: 'up' },
+    { type: 'reversal_short', label: 'BÁN - ĐẢO CHIỀU', tone: 'down' },
+  ];
+  function renderSignalStatsTable(statsByType) {
+    const el = document.getElementById('ai-stats-table');
+    if (!el) return;
+    const MIN_SAMPLE = 20; // dưới ngưỡng này thì tỷ lệ thắng/R chưa đủ ý nghĩa thống kê, cần cảnh báo rõ
+    const rows = STAT_SIGNAL_TYPES.map(t => {
+      const st = statsByType[t.type] || { wins: 0, losses: 0, sumR: 0 };
+      const closed = st.wins + st.losses;
+      const winRate = closed ? (st.wins / closed * 100) : null;
+      const avgR = closed ? (st.sumR / closed) : null;
+      const resultHtml = closed
+        ? `${closed} lệnh <span class="stat-w">${st.wins} thắng</span> / <span class="stat-l">${st.losses} thua</span>`
+        : `Chưa có lệnh nào đóng`;
+      const rHtml = avgR === null ? '—' : `${avgR >= 0 ? '▲ +' : '▼ '}${avgR.toFixed(2)}R ${avgR >= 0 ? '(lãi)' : '(lỗ)'}`;
+      const smallSampleTag = (closed > 0 && closed < MIN_SAMPLE) ? `<span class="stat-small-sample" title="Mẫu dưới ${MIN_SAMPLE} lệnh, số liệu chưa đủ tin cậy để kết luận">mẫu nhỏ</span>` : '';
+      return `<div class="stat-row">
+        <div class="stat-row-top">
+          <span class="stat-row-label ${t.tone}">${t.tone === 'up' ? '▲' : '▼'} ${t.label}</span>
+          ${smallSampleTag}
+        </div>
+        <div class="stat-row-bottom">
+          <span class="stat-row-result">${resultHtml}</span>
+          <span class="stat-row-wr">${winRate === null ? 'Tỷ lệ thắng: —' : 'Thắng ' + winRate.toFixed(0) + '%'}</span>
+          <span class="stat-row-r ${avgR === null ? '' : (avgR >= 0 ? 'up' : 'down')}">${rHtml}</span>
+        </div>
+      </div>`;
+    }).join('');
+    el.innerHTML = `<div class="stat-table-title-row"><span class="stat-table-title">Thống kê backtest theo tín hiệu</span><button type="button" class="stat-note-toggle" onclick="toggleStatNote(this)">${icon('pin','ico-inline')}R là gì?</button></div>${rows}<div class="stat-note" id="ai-stat-note"><span>${icon('pin', 'ico-inline')}</span><span><b>R là gì?</b> R = bội số rủi ro (khoảng cách entry → SL đặt ban đầu). +1R = lãi đúng bằng mức rủi ro đã chấp nhận, -1R = lỗ đúng bằng SL bị chạm. Quét tối đa ${BACKTEST_MAX_BARS} nến sau mỗi tín hiệu trên dữ liệu lịch sử đã tải; lệnh chưa chạm Target/SL trong phạm vi này không tính vào thống kê. Mẫu dưới ${MIN_SAMPLE} lệnh chỉ mang tính tham khảo, hiệu suất quá khứ không đảm bảo cho tương lai.</span></div>`;
+  }
+  function toggleStatNote(btn) {
+    const note = document.getElementById('ai-stat-note');
+    if (!note) return;
+    const willShow = !note.classList.contains('show');
+    note.classList.toggle('show', willShow);
+    if (btn) btn.classList.toggle('active', willShow);
+  }
   function findSwings(candles, left, right){ const highs = [], lows = []; for (let i = left; i < candles.length - right; i++){ let isHigh = true, isLow = true; for (let j = i - left; j <= i + right; j++){ if (j === i) continue; if (candles[j].high >= candles[i].high) isHigh = false; if (candles[j].low <= candles[i].low) isLow = false; } if (isHigh) highs.push(candles[i].high); if (isLow) lows.push(candles[i].low); } return { highs, lows }; }
   function structureSignal(candles, windowSize, left, right){ const slice = candles.slice(Math.max(0, candles.length - windowSize)); if (slice.length < left + right + 4) return 0; const { highs, lows } = findSwings(slice, left, right); if (highs.length < 2 || lows.length < 2) return 0; const hh = highs[highs.length - 1] > highs[highs.length - 2]; const hl = lows[lows.length - 1] > lows[lows.length - 2]; const lh = highs[highs.length - 1] < highs[highs.length - 2]; const ll = lows[lows.length - 1] < lows[lows.length - 2]; if (hh && hl) return 1; if (lh && ll) return -1; return 0; }
   function computeHorizonTrend(candles, fastP, slowP, slopeLookback, structWindow, fracL, fracR){ if (candles.length < slowP + 5) return { trend: 0, emaSig: 0, structSig: 0, insufficient: true }; const closes = candles.map(c => c.close); const emaFast = computeEMA(closes, fastP); const emaSlow = computeEMA(closes, slowP); const lastClose = closes[closes.length - 1]; const lastFast = emaFast[emaFast.length - 1]; const lastSlow = emaSlow[emaSlow.length - 1]; const slope = emaSlopeSignal(emaFast, slopeLookback); let emaSig = 0; if (lastFast > lastSlow && lastClose > lastFast && slope >= 0) emaSig = 1; else if (lastFast < lastSlow && lastClose < lastFast && slope <= 0) emaSig = -1; const structSig = structureSignal(candles, structWindow, fracL, fracR); let trend = 0; if (emaSig === 1 && structSig === 1) trend = 1; else if (emaSig === -1 && structSig === -1) trend = -1; else if (emaSig !== 0 && structSig === 0) trend = emaSig * 0.5; else trend = 0; return { trend, emaSig, structSig, insufficient: false }; }
@@ -2314,10 +2602,14 @@
         return `Chiến lược thuận xu hướng LONG đa khung THẬT: hệ thống quét toàn bộ các khung LỚN HƠN khung đang xem (trong dải 5m-1M), chỉ cần MỘT khung lớn xác nhận xu hướng tăng là đủ điều kiện. Điểm entry chính xác luôn bắt tại khung NHỎ NHẤT (${currentInterval}) đang xem khi giá phá lên EMA21. Target ưu tiên là dải trên Bollinger Bands của khung lớn GẦN NHẤT đang xác nhận — điểm chốt lời an toàn, không quá xa entry; nếu chưa khung lớn nào hợp lệ thì dùng R:R theo ATR làm dự phòng. Khuyến nghị: rủi ro tối đa 1-2% vốn/lệnh, tuân thủ SL nghiêm ngặt, có thể chốt lời 1 phần tại Target rồi dời SL về hòa vốn để bảo toàn lợi nhuận.`;
       case 'trend_short':
         return `Chiến lược thuận xu hướng SHORT đa khung THẬT: hệ thống quét toàn bộ các khung LỚN HƠN khung đang xem (trong dải 5m-1M), chỉ cần MỘT khung lớn xác nhận xu hướng giảm là đủ điều kiện. Điểm entry chính xác luôn bắt tại khung NHỎ NHẤT (${currentInterval}) đang xem khi giá gãy xuống EMA21. Target ưu tiên là dải dưới Bollinger Bands của khung lớn GẦN NHẤT đang xác nhận — điểm chốt lời an toàn, không quá xa entry; nếu chưa khung lớn nào hợp lệ thì dùng R:R theo ATR làm dự phòng. Khuyến nghị: rủi ro tối đa 1-2% vốn/lệnh, tuân thủ SL nghiêm ngặt, có thể chốt lời 1 phần tại Target rồi dời SL về hòa vốn để bảo toàn lợi nhuận.`;
+      case 'reversal_short':
+        return `Buying Climax ĐÃ XÁC NHẬN bằng phân kỳ giảm RSI/giá: khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng mạnh, giá tạo đỉnh mới cao hơn nhưng RSI KHÔNG xác nhận (đỉnh RSI thấp hơn đỉnh trước) — dấu hiệu rõ ràng bên mua đang đuối sức, dòng tiền lớn có thể đang phân phối. Stop Loss đặt trên đỉnh nến climax, R:R cố định 1:${REVERSAL_RR}. Đây là lệnh NGƯỢC XU HƯỚNG (đảo chiều) nên xác suất thất bại cao hơn tín hiệu thuận xu hướng — khuyến nghị khối lượng vào lệnh nhỏ hơn bình thường và tuân thủ SL nghiêm ngặt.`;
+      case 'reversal_long':
+        return `Selling Climax ĐÃ XÁC NHẬN bằng phân kỳ tăng RSI/giá: khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm mạnh, giá tạo đáy mới thấp hơn nhưng RSI KHÔNG xác nhận (đáy RSI cao hơn đáy trước) — dấu hiệu rõ ràng bên bán đang đuối sức, lực bắt đáy đang hình thành. Stop Loss đặt dưới đáy nến climax, R:R cố định 1:${REVERSAL_RR}. Đây là lệnh NGƯỢC XU HƯỚNG (đảo chiều) nên xác suất thất bại cao hơn tín hiệu thuận xu hướng — khuyến nghị khối lượng vào lệnh nhỏ hơn bình thường và tuân thủ SL nghiêm ngặt.`;
       case 'climax_buy':
-        return `Buying Climax: khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng — dấu hiệu bên mua đuối sức, dòng tiền lớn có thể đang chốt lời/phân phối. Nên thận trọng khi mở Long mới, cân nhắc chốt lời một phần vị thế Long đang nắm giữ, tránh mua đuổi (FOMO).`;
+        return `Buying Climax CHƯA xác nhận: khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng, RSI quá mua nhưng KHÔNG phát hiện phân kỳ RSI/giá đi kèm — độ tin cậy thấp hơn nên hệ thống CHƯA đưa ra lệnh Bán/Đảo chiều cụ thể. Chỉ nên thận trọng khi mở Long mới, cân nhắc chốt lời một phần vị thế Long đang nắm giữ, tránh mua đuổi (FOMO).`;
       case 'climax_sell':
-        return `Selling Climax: khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm — dấu hiệu bên bán đuối sức, có thể xuất hiện lực bắt đáy. Nên thận trọng khi mở Short mới, cân nhắc chốt lời một phần vị thế Short đang nắm giữ, tránh bán đuổi theo cảm xúc.`;
+        return `Selling Climax CHƯA xác nhận: khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm, RSI quá bán nhưng KHÔNG phát hiện phân kỳ RSI/giá đi kèm — độ tin cậy thấp hơn nên hệ thống CHƯA đưa ra lệnh Mua/Đảo chiều cụ thể. Chỉ nên thận trọng khi mở Short mới, cân nhắc chốt lời một phần vị thế Short đang nắm giữ, tránh bán đuổi theo cảm xúc.`;
       case 'vol_spike':
         return `Khối lượng vượt trội xác nhận lực ${s.tone === 'up' ? 'mua' : 'bán'} đang chiếm ưu thế tại vùng giá này — có thể là khởi đầu một nhịp đẩy giá ngắn hạn, nhưng chưa đủ điều kiện xác nhận xu hướng để vào lệnh mới theo hệ thống.`;
       case 'fng_block':
@@ -2333,8 +2625,9 @@
     if (liveStatusEl) liveStatusEl.innerHTML = isLiveSignalPreview ? '<span class="live-dot" style="display:inline-block; margin-right:4px; vertical-align:middle;"></span>LIVE · nến chưa đóng, tín hiệu có thể đổi' : icon('checkCircle', 'ico-inline') + ' Đã xác nhận nến đóng';
     runTrendAnalysis(); signalsMap.clear();
     const aiList = document.getElementById('ai-signal-list');
-    if(!aiEnabled){ candleSeriesMarkers.setMarkers([]); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; return;}
-    if(candlesData.length < 200) { aiList.innerHTML='<div class="ai-empty">Vui lòng chờ tải đủ 200 nến dữ liệu lịch sử...</div>'; return; }
+    const statsTableEl = document.getElementById('ai-stats-table');
+    if(!aiEnabled){ lastAiMarkers = []; applyAllChartMarkers(); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; if (statsTableEl) statsTableEl.innerHTML=''; return;}
+    if(candlesData.length < 200) { aiList.innerHTML='<div class="ai-empty">Vui lòng chờ tải đủ 200 nến dữ liệu lịch sử...</div>'; if (statsTableEl) statsTableEl.innerHTML=''; return; }
     
     const closes = candlesData.map(c => c.close);
     const vols = volumesData.map(v => v.value);
@@ -2351,14 +2644,17 @@
     const signals = [];
     function addSignal(sig) { signals.push(sig); if (!signalsMap.has(sig.time)) signalsMap.set(sig.time, []); signalsMap.get(sig.time).push(sig); }
     function signalIconName(s) {
-      if (s.type === 'trend_long') return 'trendUp';
-      if (s.type === 'trend_short') return 'trendDown';
+      if (s.type === 'trend_long' || s.type === 'reversal_long') return 'trendUp';
+      if (s.type === 'trend_short' || s.type === 'reversal_short') return 'trendDown';
       if (s.type === 'climax_buy' || s.type === 'climax_sell') return 'alertTriangle';
       if (s.type === 'fng_block') return 'shield';
       return 'target';
     }
-    // Phân loại chú thích: AI TÍN HIỆU (khuyến nghị vào lệnh / lọc lệnh theo tâm lý) vs WYCKOFF (climax & volume bất thường)
+    // Phân loại chú thích: THUẬN XU HƯỚNG (trend_long/short) vs ĐẢO CHIỀU (reversal đã xác nhận phân kỳ, có
+    // entry/target/SL riêng) vs WYCKOFF (climax chưa xác nhận & volume bất thường, chỉ mang tính cảnh báo)
     function signalCategoryLabel(s) {
+      if (s.type === 'trend_long' || s.type === 'trend_short') return 'THUẬN XU HƯỚNG';
+      if (s.type === 'reversal_long' || s.type === 'reversal_short') return 'ĐẢO CHIỀU';
       if (s.type === 'climax_buy' || s.type === 'climax_sell' || s.type === 'vol_spike') return 'WYCKOFF';
       return 'AI TÍN HIỆU';
     }
@@ -2407,8 +2703,15 @@
       // Bỏ qua tín hiệu khi thị trường quá "chết" (biến động thấp hơn 60% trung bình) — tránh entry vô nghĩa trong sideway hẹp
       if (avgAtr[i] > 0 && atr14[i] < avgAtr[i] * 0.6) { isLongEntry = false; isShortEntry = false; }
 
+      // ĐÃ SỬA: trước đây điều kiện "i === candlesData.length - 1" chỉ lọc theo tâm lý đám đông cho nến CUỐI
+      // CÙNG, khiến backtest không công bằng — toàn bộ tín hiệu lịch sử phía trước không hề bị lọc trong khi
+      // tín hiệu mới nhất thì có, làm tỷ lệ thắng thống kê được của hệ thống bị thổi phồng giả tạo (vì các lệnh
+      // lẽ ra phải bị chặn bởi tâm lý cực đoan vẫn được tính là "đã vào lệnh" trong quá khứ). Do sàn không cung
+      // cấp lịch sử tỷ lệ Long/Short theo từng thời điểm, ta dùng CHUNG một mức lọc (tỷ lệ hiện tại) áp dụng
+      // ĐỒNG NHẤT cho mọi nến trong vòng quét — không còn đặc cách riêng cho nến cuối — để thống kê thắng/thua
+      // phản ánh đúng cách hệ thống thực sự sẽ lọc lệnh nếu chạy suốt giai đoạn đó.
       let isFilteredBySentiment = false; let filterReason = "";
-      if (i === candlesData.length - 1 && typeof binanceLSRatio !== 'undefined') {
+      if (typeof binanceLSRatio !== 'undefined') {
         if (isLongEntry && binanceLSRatio > 2.5) { isLongEntry = false; isFilteredBySentiment = true; filterReason = `HỦY LONG: Đám đông FOMO (L/S: ${binanceLSRatio.toFixed(2)}).`; }
         if (isShortEntry && binanceLSRatio < 0.8) { isShortEntry = false; isFilteredBySentiment = true; filterReason = `HỦY SHORT: Đám đông hoảng loạn (L/S: ${binanceLSRatio.toFixed(2)}).`; }
       }
@@ -2441,7 +2744,7 @@
           }
         }
         const tfNote = confirmingTfs.length ? `Khung lớn xác nhận LONG: ${confirmingTfs.join(', ')}.` : '';
-        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentUpColor });
+        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, _idx: i, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentUpColor });
       } else if (isShortEntry) {
         lastShortIdx = i;
         const stopLoss = c.close + stopDistance;
@@ -2461,7 +2764,7 @@
           }
         }
         const tfNote = confirmingTfs.length ? `Khung lớn xác nhận SHORT: ${confirmingTfs.join(', ')}.` : '';
-        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentDownColor });
+        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, _idx: i, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentDownColor });
       }
 
       // 2. TÍN HIỆU VOLUME ĐỘT BIẾN / CLIMAX — đã tối ưu: chỉ báo climax THẬT khi có đủ 4 điều kiện
@@ -2484,12 +2787,36 @@
         const isBuyClimaxShape = c.close > c.open && upperWick > body * 1.5 && upperWick > range * 0.35;
         const isSellClimaxShape = c.close < c.open && lowerWick > body * 1.5 && lowerWick > range * 0.35;
 
+        // Phân kỳ RSI/giá là điều kiện XÁC NHẬN bắt buộc để nâng cấp climax thành tín hiệu MUA/BÁN đảo chiều
+        // đầy đủ (entry/target/SL riêng). Không có phân kỳ -> chỉ giữ lại cảnh báo climax nhẹ như cũ (không entry).
+        const div = detectDivergence(candlesData, rsi14, i);
+
         if (isBuyClimaxShape && priorUptrend && rangeIsWide && currRsi > 65 && (i - lastClimaxBuyIdx) >= climaxCooldownBars) {
            lastClimaxBuyIdx = i;
-           addSignal({ time: c.time, type: 'climax_buy', label: 'BUYING CLIMAX', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} sau nhịp tăng mạnh, RSI ${currRsi.toFixed(0)} quá mua. Bị xả mạnh.`, color: '#ffc93c' });
+           if (div.bearish) {
+             // Buying Climax + phân kỳ giảm RSI/giá xác nhận -> nâng cấp thành tín hiệu BÁN - ĐẢO CHIỀU đầy đủ.
+             // Stop Loss đặt trên đỉnh nến climax (điểm phá vỡ cấu trúc), Target theo R:R cố định REVERSAL_RR.
+             const entry = c.close;
+             const sl = c.high + atr14[i] * 0.3;
+             const risk = sl - entry;
+             const target = entry - risk * REVERSAL_RR;
+             addSignal({ time: c.time, type: 'reversal_short', label: 'BÁN - ĐẢO CHIỀU', tone: 'down', price: c.close, entry, target, sl, _idx: i, desc: `Buying Climax + phân kỳ giảm RSI/giá: Vol x${(v/avgVol).toFixed(1)} sau nhịp tăng mạnh, RSI ${currRsi.toFixed(0)} quá mua nhưng giá tạo đỉnh mới còn RSI không xác nhận -> lực mua suy yếu rõ rệt. R:R 1:${REVERSAL_RR}.`, color: currentDownColor });
+           } else {
+             addSignal({ time: c.time, type: 'climax_buy', label: 'CẢNH BÁO ĐỈNH (CHƯA XÁC NHẬN)', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} sau nhịp tăng mạnh, RSI ${currRsi.toFixed(0)} quá mua. Bị xả mạnh, nhưng CHƯA phát hiện phân kỳ RSI/giá xác nhận.`, color: '#ffc93c' });
+           }
         } else if (isSellClimaxShape && priorDowntrend && rangeIsWide && currRsi < 35 && (i - lastClimaxSellIdx) >= climaxCooldownBars) {
            lastClimaxSellIdx = i;
-           addSignal({ time: c.time, type: 'climax_sell', label: 'SELLING CLIMAX', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} sau nhịp giảm mạnh, RSI ${currRsi.toFixed(0)} quá bán. Lực bắt đáy mạnh.`, color: '#ffc93c' });
+           if (div.bullish) {
+             // Selling Climax + phân kỳ tăng RSI/giá xác nhận -> nâng cấp thành tín hiệu MUA - ĐẢO CHIỀU đầy đủ.
+             // Stop Loss đặt dưới đáy nến climax (điểm phá vỡ cấu trúc), Target theo R:R cố định REVERSAL_RR.
+             const entry = c.close;
+             const sl = c.low - atr14[i] * 0.3;
+             const risk = entry - sl;
+             const target = entry + risk * REVERSAL_RR;
+             addSignal({ time: c.time, type: 'reversal_long', label: 'MUA - ĐẢO CHIỀU', tone: 'up', price: c.close, entry, target, sl, _idx: i, desc: `Selling Climax + phân kỳ tăng RSI/giá: Vol x${(v/avgVol).toFixed(1)} sau nhịp giảm mạnh, RSI ${currRsi.toFixed(0)} quá bán nhưng giá tạo đáy mới còn RSI không xác nhận -> lực bán suy yếu rõ rệt. R:R 1:${REVERSAL_RR}.`, color: currentUpColor });
+           } else {
+             addSignal({ time: c.time, type: 'climax_sell', label: 'CẢNH BÁO ĐÁY (CHƯA XÁC NHẬN)', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} sau nhịp giảm mạnh, RSI ${currRsi.toFixed(0)} quá bán. Lực bắt đáy mạnh, nhưng CHƯA phát hiện phân kỳ RSI/giá xác nhận.`, color: '#ffc93c' });
+           }
         } else if (c.close > c.open && !isLongEntry) {
            // Vẽ lại chấm tròn cho Volume Bùng nổ (Mua)
            addSignal({ time: c.time, type: 'vol_spike', label: 'BÙNG NỔ MUA', tone: 'up', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} lần trung bình.`, color: currentUpColor });
@@ -2502,6 +2829,23 @@
       if (isFilteredBySentiment) { addSignal({ time: c.time, type: 'fng_block', label: 'AI CHẶN LỆNH', tone: 'warn', price: c.close, desc: filterReason, color: '#6b7280' }); }
     }
     
+    // ==== Bảng thống kê backtest (tỷ lệ thắng, R trung bình) cho từng loại tín hiệu ====
+    // Chạy trên TOÀN BỘ tín hiệu có entry/target/SL đã phát ra trong lịch sử đã tải (không chỉ phần đang hiển
+    // thị), để người dùng tự đánh giá độ tin cậy của từng loại tín hiệu trước khi quyết định vào lệnh.
+    const statsByType = {};
+    STAT_SIGNAL_TYPES.forEach(t => statsByType[t.type] = { wins: 0, losses: 0, sumR: 0 });
+    signals.forEach(s => {
+      if (s._idx == null || s.entry == null) return;
+      const bucket = statsByType[s.type];
+      if (!bucket) return;
+      const isLong = (s.type === 'trend_long' || s.type === 'reversal_long');
+      const r = simulateSignalOutcome(s._idx, s.entry, s.target, s.sl, isLong);
+      if (r === null) return; // lệnh chưa đóng trong phạm vi quét -> không tính vào thống kê
+      bucket.sumR += r;
+      if (r > 0) bucket.wins++; else bucket.losses++;
+    });
+    renderSignalStatsTable(statsByType);
+
     const visibleSignals = signals.filter(s => s.time >= aiIgnoreBeforeTime && !deletedLogTimes.has(s.time));
 
     // Chú thích cho mỗi cây nến có sự kiện: LONG/SHORT (AI tín hiệu), B.CLX/S.CLX + VOL+/VOL- (Wyckoff), CHẶN (AI lọc lệnh theo tâm lý)
@@ -2509,13 +2853,16 @@
     visibleSignals.forEach(s => {
       if (s.type === 'trend_long') markers.push({ time: s.time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: 'LONG' });
       else if (s.type === 'trend_short') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'arrowDown', text: 'SHORT' });
+      else if (s.type === 'reversal_long') markers.push({ time: s.time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: 'REV.L' });
+      else if (s.type === 'reversal_short') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'arrowDown', text: 'REV.S' });
       else if (s.type === 'fng_block') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'square', text: 'CHẶN' });
       else if (s.type === 'climax_buy') markers.push({ time: s.time, position: 'aboveBar', color: '#ffc93c', shape: 'arrowDown', text: 'B.CLX' });
       else if (s.type === 'climax_sell') markers.push({ time: s.time, position: 'belowBar', color: '#ffc93c', shape: 'arrowUp', text: 'S.CLX' });
       else if (s.type === 'vol_spike') markers.push({ time: s.time, position: (s.tone === 'up' ? 'belowBar' : 'aboveBar'), color: s.color, shape: 'circle', text: (s.tone === 'up' ? 'VOL+' : 'VOL-') });
     });
     markers.sort((a,b) => a.time - b.time);
-    candleSeriesMarkers.setMarkers(markers);
+    lastAiMarkers = markers;
+    applyAllChartMarkers();
     
     aiList.innerHTML = '';
     if (visibleSignals.length === 0){ aiList.innerHTML = '<div class="ai-empty">Chưa có dữ liệu hoặc đã được dọn sạch sẽ...</div>'; return; }
@@ -2527,7 +2874,7 @@
         ? `<div class="signal-desc" style="margin-top:5px; font-family:'JetBrains Mono', monospace; font-size:12px; font-weight:600;"><span style="color:var(--up)">${icon('dot','ico-inline')}Entry: ${fmt(s.entry)}</span> | <span style="color:var(--gold)">${icon('dot','ico-inline')}Target: ${fmt(s.target)}</span> | <span style="color:var(--down)">${icon('dot','ico-inline')}SL: ${fmt(s.sl)}</span></div><div class="signal-desc" style="color:var(--text-dim); font-size:11.5px; margin-top:3px;">${s.desc}</div>${proNoteHtml}` 
         : `<div class="signal-desc" style="color:var(--text-dim); font-size:12.5px; margin-top:5px;">${s.desc}</div>${proNoteHtml}`;
 
-      const cat = signalCategoryLabel(s); const catCls = cat === 'WYCKOFF' ? 'cat-wyckoff' : '';
+      const cat = signalCategoryLabel(s); const catCls = cat === 'WYCKOFF' ? 'cat-wyckoff' : (cat === 'ĐẢO CHIỀU' ? 'cat-reversal' : '');
       row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge-wrap"><span class="signal-eyebrow ${catCls}">${cat}</span><div class="signal-badge ${s.tone}">${icon(signalIconName(s))}<span class="lbl">${s.label}</span></div></div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtTime(s.time)}</span><span class="signal-price" style="font-weight:700;">${s.entry ? 'Vùng:' : 'Giá:'} ${fmt(s.price)} USDT</span></div>${descHtml}</div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${s.time})" title="Xóa">${icon('x')}</button></div>`;
       aiList.appendChild(row);
     });
@@ -2686,6 +3033,7 @@
     // Đổi coin -> lọc lại nhật ký cá mập để chỉ hiện đúng dữ liệu của coin vừa chọn ngay lập tức
     // (dữ liệu của các coin khác vẫn được giữ nguyên, đang được ghi nhận ở nền).
     if (typeof renderWhaleLogs === 'function') renderWhaleLogs();
+    lastAiMarkers = []; candleSeriesMarkers.setMarkers([]); // xóa icon/tín hiệu của coin hoặc khung cũ ngay, tránh hiện sai trong lúc chờ nến mới tải xong
 
     fetchSyncData(true); fetchHtfData();
     syncInterval = setInterval(() => { fetchSyncData(false); fetchHtfData(); }, 45 * 1000);
@@ -2745,8 +3093,8 @@
       whaleWS.onmessage = (event) => {
         const d = JSON.parse(event.data);
         const p = parseFloat(d.p); const q = parseFloat(d.q); const isBuy = !d.m; const usd = p * q;
-        const dynamicThreshold = getWhaleThreshold(currentSymbol);
-        if (usd >= dynamicThreshold) showWhaleAlert(isBuy, usd, p, currentSymbol);
+        const tier = getFishTier(usd, currentSymbol);
+        if (tier) showWhaleAlert(isBuy, usd, p, currentSymbol, tier.key);
 
         const now = Date.now();
         liveTradeBuf.push({ t: now, usd, isBuy });
