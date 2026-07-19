@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FUTU TRADE  CRYPTO TERMINAL - ĐƯỢC PHÁT TRIỂN BỞI SINH VIÊN VÕ THANH SANG(UTH)</title>
 <script src="https://unpkg.com/lightweight-charts@5/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -494,6 +495,38 @@
     </div>
   </div>
 
+  <div class="econ-section" id="econ-section">
+    <div class="econ-header">
+      <div>
+        <div class="econ-eyebrow">NỀN KINH TẾ</div>
+        <div class="econ-title" id="econ-title">Bản đồ lạm phát toàn cầu</div>
+      </div>
+      <div class="chips econ-tabs" id="econ-tabs">
+        <button class="chip active" data-econ="inflation" type="button">Lạm phát</button>
+        <button class="chip" data-econ="gdp" type="button">Tăng trưởng GDP</button>
+        <button class="chip" data-econ="unemployment" type="button">Thất nghiệp</button>
+      </div>
+    </div>
+
+    <div class="econ-map-wrap" id="econ-map-wrap">
+      <div class="econ-map-status" id="econ-map-status">Đang tải dữ liệu…</div>
+      <svg id="econ-map-svg" class="econ-map-svg" viewBox="0 0 620 620" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="econ-map-hint">🖱️ Kéo để xoay quả cầu</div>
+    </div>
+
+    <div class="econ-legend-wrap">
+      <div class="econ-legend-bar" id="econ-legend-bar"></div>
+      <div class="econ-legend-labels" id="econ-legend-labels"></div>
+      <div class="econ-legend-hover" id="econ-legend-hover">
+        <span class="econ-legend-hover-dot" id="econ-legend-hover-dot"></span>
+        <span class="econ-legend-hover-text" id="econ-legend-hover-text">Di chuột vào bản đồ để xem chi tiết từng quốc gia</span>
+      </div>
+    </div>
+
+    <div class="econ-source">Nguồn dữ liệu thật: World Bank — World Development Indicators (mỗi quốc gia hiển thị theo năm gần nhất có số liệu công bố, xem chi tiết khi di chuột/chạm vào bản đồ).</div>
+  </div>
+  <div class="econ-tooltip" id="econ-tooltip"></div>
+
   <div class="site-footer">
     <div class="site-footer-disclaimer">
       <div class="site-footer-disclaimer-icon">
@@ -613,51 +646,6 @@
   </style>
   <script src="script.js"></script>
   
-  <script type="module">
-  import { initializeApp } from "firebase/app";
-  import { getAuth, signInWithPhoneNumber, RecaptchaVerifier } from "firebase/auth";
-
-  // 1. Thay cấu hình Firebase Console của bạn vào đây
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-
-
-  // 3. Khởi tạo bộ xác thực reCAPTCHA chống spam của Google
-  window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-    'size': 'normal',
-    'callback': (response) => {}
-  }, auth);
-
-  let confirmationResult = null;
-
-  // XỬ LÝ NÚT XÁC THỰC MÃ OTP DO NGƯỜI DÙNG NHẬP VÀO
-  document.getElementById('btn-verify-otp').addEventListener('click', () => {
-    const code = document.getElementById('otp-code').value.trim();
-    if (code.length !== 6) {
-      alert("Vui lòng nhập đầy đủ 6 chữ số OTP!");
-      return;
-    }
-
-    confirmationResult.confirm(code)
-      .then((result) => {
-        alert("Xác thực thành công! Hệ thống Terminal đã sẵn sàng.");
-        document.getElementById('auth-modal').style.display = 'none'; // Ẩn màn hình khóa, cho phép dùng biểu đồ
-      })
-      .catch((error) => {
-        alert("Mã OTP bạn nhập không chính xác hoặc đã quá hạn! Vui lòng kiểm tra lại.");
-      });
-  });
-</script>
-
   <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
   import { 
