@@ -5,7 +5,10 @@
     --gold:#ffc93c; --gold-dim:#ffc93c22;
   }
   *{box-sizing:border-box;}
-  html{ overflow-x:hidden; -webkit-tap-highlight-color:transparent; }
+  html{ overflow-x:hidden; -webkit-tap-highlight-color:transparent; scroll-behavior:smooth; }
+  /* Cảm giác "app" mượt mà hơn trên di động: chặn hiệu ứng bounce/pull-to-refresh của trình duyệt
+     khi người dùng vuốt ở rìa trang, nhưng vẫn cho phép cuộn dọc bình thường bên trong trang. */
+  body{ overscroll-behavior-y:contain; }
   /* Khi màn hình đăng nhập đang hiện, khoá cuộn trang chính để không lộ thanh trượt vô dụng phía sau overlay */
   html.auth-locked, html.auth-locked body{ overflow:hidden !important; height:100%; }
   body{ margin:0; background:radial-gradient(1100px 480px at 12% -8%, #12213a55, transparent 60%), radial-gradient(900px 420px at 100% 0%, #1a0f2a4d, transparent 55%), var(--bg); color:var(--text); font-family:'Inter', sans-serif; min-height:100vh; padding:24px; overflow-x:hidden; }
@@ -89,7 +92,7 @@
   .search-box button:hover{ background:#2f78ee; }
 
   /* GỢI Ý MÃ COIN — hiển thị toàn bộ cặp USDT có trên Binance khi người dùng gõ tìm kiếm */
-  .symbol-suggest{ position:absolute; top:calc(100% + 6px); left:0; width:260px; max-height:320px; overflow-y:auto; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; box-shadow:0 16px 36px -10px rgba(0,0,0,.55); z-index:150; display:none; padding:6px; }
+  .symbol-suggest{ position:absolute; top:calc(100% + 6px); left:0; width:260px; max-height:320px; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--border) transparent; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; box-shadow:0 16px 36px -10px rgba(0,0,0,.55); z-index:150; display:none; padding:6px; }
   .symbol-suggest.show{ display:block; }
   .symbol-suggest-item{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-radius:7px; cursor:pointer; transition:background .12s; }
   .symbol-suggest-item:hover, .symbol-suggest-item.hl{ background:var(--accent-dim); }
@@ -162,7 +165,7 @@
   .news-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 22px 20px; display:flex; flex-direction:column; height:380px; transition:box-shadow .3s ease; }
   .news-card:hover{ box-shadow:0 0 0 1px var(--border), 0 8px 24px rgba(0,0,0,.25); }
   .news-updated{ font-size:11px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; }
-  .news-list{ margin-top:8px; flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+  .news-list{ margin-top:8px; flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; display:flex; flex-direction:column; gap:2px; }
   .news-list::-webkit-scrollbar{ width:6px; }
   .news-list::-webkit-scrollbar-thumb{ background:var(--border); border-radius:6px; }
   .news-empty{ color:var(--text-dim); font-size:13px; padding:16px 4px; text-align:center; }
@@ -221,22 +224,23 @@
 
   /* ============ MAIN CONTAINER & TOOLBAR ============ */
   .main-container { display: flex; align-items: stretch; gap: 14px; margin-top: 14px; }
-  .drawing-toolbar { width: 40px; min-height: 0; align-self: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 5px; flex-shrink: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-  .drawing-toolbar::-webkit-scrollbar{ width:4px; }
+  .drawing-toolbar { width: 48px; min-height: 0; align-self: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 6px; flex-shrink: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-width: thin; scrollbar-color:var(--border) transparent; }
+  .drawing-toolbar::-webkit-scrollbar{ width:4px; height:4px; }
   .drawing-toolbar::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
-  .tool-btn { width: 30px; height: 30px; border-radius: 7px; background: transparent; border: none; color: var(--text-dim); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink:0; position:relative; }
+  .tool-btn { width: 34px; height: 34px; border-radius: 8px; background: transparent; border: none; color: var(--text-dim); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink:0; position:relative; }
   .tool-btn:hover { background: var(--surface-alt); color: var(--text); }
   .tool-btn.active { background: var(--accent-dim); color: var(--accent); }
   .tool-btn.toggle-on { background: rgba(240,185,11,0.16); color: var(--gold); }
-  .tool-btn svg { width: 16px; height: 16px; fill: currentColor; }
-  .toolbar-divider { width: 20px; height: 1px; background: var(--border); margin: 2px 0; flex-shrink:0; }
+  .tool-btn svg { width: 17px; height: 17px; fill: currentColor; }
+  .toolbar-divider { width: 24px; height: 1px; background: var(--border); margin: 2px 0; flex-shrink:0; }
 
-  /* ===== Nhóm công cụ có flyout (Đường / Kênh) — click-giữ mũi tên nhỏ để xem đủ biến thể, giống TradingView ===== */
-  .tool-group{ position:relative; display:flex; flex-shrink:0; }
-  .tool-group-main{ width:30px; }
-  .tool-group-caret{ position:absolute; right:-6px; bottom:-6px; width:16px; height:16px; border:none; border-radius:50%; background:transparent; padding:0; cursor:pointer; color:var(--text-dim); display:flex; align-items:center; justify-content:center; z-index:2; transition:background .15s, color .15s; }
-  .tool-group-caret svg{ width:8px; height:8px; fill:currentColor; pointer-events:none; }
-  .tool-group-caret:hover, .tool-group.flyout-open .tool-group-caret{ color:var(--accent); background:var(--surface-alt); }
+  /* ===== Nhóm công cụ có flyout (Đường / Kênh) — click mũi tên nhỏ bên dưới icon để xem đủ biến thể, giống TradingView.
+     Icon chính giữ nguyên kích thước 34px như mọi nút khác (đồng bộ); caret là dải nhỏ tách riêng nằm dưới, không đè lên icon. ===== */
+  .tool-group{ position:relative; display:flex; flex-direction:column; align-items:center; flex-shrink:0; gap:2px; }
+  .tool-group-main{ width:34px; }
+  .tool-group-caret{ position:relative; width:34px; height:11px; border:none; border-radius:5px; background:var(--surface-alt); padding:0; cursor:pointer; color:var(--text-dim); display:flex; align-items:center; justify-content:center; z-index:2; transition:background .15s, color .15s; }
+  .tool-group-caret svg{ width:8px; height:8px; fill:currentColor; pointer-events:none; transform:rotate(90deg); }
+  .tool-group-caret:hover, .tool-group.flyout-open .tool-group-caret{ color:var(--accent); background:var(--accent-dim); }
   .tool-group.flyout-open .tool-group-main{ background:var(--surface-alt); }
   .tool-flyout{ position:fixed; min-width:220px; background:var(--surface-alt); border:1px solid var(--border); border-radius:10px; box-shadow:0 16px 40px -10px rgba(0,0,0,.6); padding:6px; z-index:2000; opacity:0; visibility:hidden; transform:translateX(-6px); transition:opacity .14s ease, transform .14s ease, visibility .14s; }
   .tool-flyout.show{ opacity:1; visibility:visible; transform:translateX(0); }
@@ -286,13 +290,25 @@
     .tool-btn svg{ width:19px; height:19px; }
     .drawing-toolbar{ width:48px; gap:7px; }
     .toolbar-divider{ width:26px; }
-    .tool-group-caret{ width:22px; height:22px; right:-8px; bottom:-8px; }
-    .tool-group-caret svg{ width:10px; height:10px; }
+    .tool-group-main{ width:38px; }
+    .tool-group-caret{ width:38px; height:13px; }
+    .tool-group-caret svg{ width:9px; height:9px; }
     .draw-obj-toolbar{ padding:6px; gap:5px; }
     .draw-obj-toolbar button{ width:34px; height:32px; font-size:12px; }
     .draw-obj-toolbar button svg{ width:18px; height:18px; }
     .draw-obj-toolbar .dot-swatch-inner{ width:18px; height:18px; }
     .draw-hint{ font-size:12px; padding:7px 14px; }
+
+    /* Phản hồi chạm tức thì (hơi lún xuống khi bấm) — chỉ áp dụng cho cảm ứng vì desktop đã có hover.
+       Giúp thao tác trên di động cảm giác nhạy và mượt hơn, giống app native. */
+    .tool-btn, .chip, .tf-btn, .tf-action-btn, .search-box button, .profile-btn,
+    .whale-filter-btn, .btn-add-ind, .im-item, .tool-flyout-item, .draw-obj-toolbar button,
+    .site-footer-link, .btn-cancel, .btn-save, .profile-edit-btn, .profile-logout-btn,
+    .profile-link-btn{ transition:transform .12s ease, background .15s, color .15s, border-color .15s, opacity .15s; }
+    .tool-btn:active, .chip:active, .tf-btn:active, .tf-action-btn:active, .search-box button:active,
+    .profile-btn:active, .whale-filter-btn:active, .btn-add-ind:active, .im-item:active,
+    .tool-flyout-item:active, .draw-obj-toolbar button:active, .btn-cancel:active, .btn-save:active,
+    .profile-edit-btn:active, .profile-logout-btn:active, .profile-link-btn:active{ transform:scale(.94); }
   }
 
   /* CHART & RESIZER */
@@ -456,7 +472,7 @@
   /* NÚT + MENU THÊM CHỈ BÁO (giống các sàn lớn) */
   .btn-add-ind{ background:var(--surface-alt); border:1px solid var(--border); color:var(--text); padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
   .btn-add-ind:hover{ border-color:var(--accent); color:var(--accent); }
-  .indicator-menu{ position:absolute; z-index:10002; width:270px; max-height:420px; overflow-y:auto; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px; box-shadow:0 12px 32px rgba(0,0,0,0.55); display:none; }
+  .indicator-menu{ position:absolute; z-index:10002; width:270px; max-height:420px; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--border) transparent; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px; box-shadow:0 12px 32px rgba(0,0,0,0.55); display:none; }
   .indicator-menu.show{ display:block; }
   .indicator-menu .im-cat{ font-size:10.5px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; padding:9px 8px 5px; }
   .indicator-menu .im-item{ display:flex; align-items:center; justify-content:space-between; padding:8px 9px; border-radius:7px; cursor:pointer; font-size:12.5px; color:#c7cdda; }
@@ -481,6 +497,57 @@
   .resizer{ width:100%; height:8px; background:var(--surface-alt); border-top:1px solid var(--border); border-bottom:1px solid var(--border); cursor:row-resize; position:relative; z-index:10; }
   .resizer:hover{ background:#2b3346; }
   .resizer::after{ content:''; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:40px; height:2px; background:var(--text-dim); border-radius:2px; }
+
+  /* ============ SECTION: BẢN ĐỒ KINH TẾ TOÀN CẦU (dữ liệu thật từ World Bank) ============ */
+  .econ-section{ margin-top:18px; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:22px 24px 24px; }
+  .econ-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  .econ-eyebrow{ font-family:'JetBrains Mono', monospace; font-size:10.5px; font-weight:700; letter-spacing:1.6px; color:var(--gold); margin-bottom:4px; }
+  .econ-title{ font-family:'Sora', sans-serif; font-weight:700; font-size:18px; color:var(--text); }
+  .econ-tabs{ flex-wrap:wrap; }
+
+  .econ-map-wrap{ position:relative; width:100%; max-width:620px; margin:0 auto; background:radial-gradient(900px 380px at 50% 15%, #0f1520, transparent 70%), var(--bg); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .econ-map-svg{ display:block; width:100%; height:auto; cursor:grab; touch-action:none; }
+  .econ-map-svg.grabbing{ cursor:grabbing; }
+  .econ-globe-atmosphere{ pointer-events:none; }
+  .econ-globe-body{ pointer-events:auto; }
+  .econ-globe-ocean{ stroke:#6fb4f0; stroke-width:0.75; stroke-opacity:0.5; }
+  .econ-globe-graticule{ fill:none; stroke:#ffffff30; stroke-width:0.5; pointer-events:none; }
+  .econ-map-hint{ position:absolute; left:12px; bottom:12px; font-family:'Inter', sans-serif; font-size:10.5px; color:var(--text-dim); background:#0a0d13cc; border:1px solid var(--border); padding:4px 9px; border-radius:20px; pointer-events:none; }
+  .econ-country{ stroke:#3a4256; stroke-width:0.5; fill:#232938; cursor:pointer; transition:fill .3s ease, stroke .15s ease, filter .15s ease; }
+  .econ-country:hover{ stroke:#e7eaf0; stroke-width:1; filter:brightness(1.18); }
+  .econ-flag-layer{ pointer-events:none; }
+  .econ-flag{ pointer-events:none; filter:drop-shadow(0 0 1.5px rgba(0,0,0,.9)) drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+  .econ-map-status{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-dim); font-weight:600; background:var(--bg); z-index:2; transition:opacity .25s ease; }
+  .econ-map-status.hide{ opacity:0; pointer-events:none; }
+  .econ-map-status.error{ color:var(--down); }
+
+  .econ-legend-wrap{ margin-top:16px; max-width:460px; }
+  .econ-legend-bar{ position:relative; height:10px; border-radius:5px; overflow:visible; }
+  .econ-legend-marker{ position:absolute; top:-4px; left:0; width:2px; height:18px; background:#fff; border-radius:2px; box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 0 6px rgba(255,255,255,.5); transform:translateX(-1px); opacity:0; pointer-events:none; transition:opacity .15s ease; }
+  .econ-legend-marker.show{ opacity:1; }
+  .econ-legend-labels{ display:flex; justify-content:space-between; margin-top:6px; font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--text-dim); }
+  .econ-legend-hover{ display:flex; align-items:center; gap:8px; margin-top:12px; padding:8px 12px; background:var(--surface); border:1px solid var(--border); border-radius:9px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--text-dim); min-height:16px; }
+  .econ-legend-hover-dot{ width:11px; height:11px; border-radius:50%; background:var(--border); flex-shrink:0; box-shadow:0 0 0 1px rgba(255,255,255,.1); transition:background .1s ease; }
+  .econ-legend-hover-name{ color:var(--text); font-weight:700; font-family:'Sora', sans-serif; }
+  .econ-legend-hover-val{ font-weight:700; color:var(--text); }
+  .econ-legend-hover-year{ color:var(--text-dim); }
+  .econ-source{ margin-top:14px; font-size:11px; color:var(--text-dim); line-height:1.6; max-width:760px; }
+
+  .econ-tooltip{ position:fixed; z-index:10100; background:#171c26f2; border:1px solid var(--border); border-radius:9px; padding:8px 12px; box-shadow:0 10px 26px -8px rgba(0,0,0,.6); pointer-events:none; opacity:0; transform:translateY(4px); transition:opacity .12s ease, transform .12s ease; }
+  .econ-tooltip.show{ opacity:1; transform:translateY(0); }
+  .econ-tt-name{ font-family:'Sora', sans-serif; font-weight:700; font-size:12.5px; color:var(--text); }
+  .econ-tt-val{ font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--gold); font-weight:700; margin-top:2px; }
+  .econ-tt-val.econ-tt-nodata{ color:var(--text-dim); font-weight:500; }
+  .econ-tt-year{ color:var(--text-dim); font-weight:500; }
+
+  @media (max-width:640px){
+    .econ-section{ padding:16px 14px 18px; margin-top:12px; }
+    .econ-title{ font-size:15.5px; }
+    .econ-header{ gap:10px; }
+    .econ-legend-wrap{ max-width:100%; }
+    .econ-legend-labels{ font-size:9.5px; }
+    .econ-source{ font-size:10.5px; }
+  }
 
   /* ============ PANELS & UI XÓA (NÂNG CẤP) ============ */
   .panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
@@ -508,7 +575,7 @@
   .ai-panel-title .dot{ width:7px; height:7px; border-radius:50%; box-shadow:0 0 8px 1px #3d8bff90; }
 
   /* ===== Bộ lọc theo loại cá (Nhật ký Lệnh Cá Mập) ===== */
-  .whale-filter-row{ display:flex; gap:6px; padding:10px 18px; border-bottom:1px solid var(--border); overflow-x:auto; flex-shrink:0; }
+  .whale-filter-row{ display:flex; gap:6px; padding:10px 18px; border-bottom:1px solid var(--border); overflow-x:auto; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; scrollbar-width:thin; scrollbar-color:var(--border) transparent; flex-shrink:0; }
   .chart-whale-filter-row{ display:flex; gap:6px; flex-wrap:wrap; }
   #whale-marker-controls .tf-action-btn.off{ opacity:.5; }
   #whale-marker-controls .tf-action-btn .ico svg{ width:14px; height:14px; }
@@ -526,7 +593,7 @@
   .btn-delete-item { background: transparent; color: #6b7280; border: none; font-size: 14px; cursor: pointer; padding: 5px 8px; border-radius: 4px; transition: all 0.2s ease; margin-left: 8px; }
   .btn-delete-item:hover { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
 
-  .ai-signal-list{ overflow-y:auto; flex: 1; }
+  .ai-signal-list{ overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; flex: 1; }
   .ai-empty{ padding:28px 18px; text-align:center; color:var(--text-dim); font-size:13px; }
   .signal-row{ position:relative; display:flex; justify-content:space-between; align-items:flex-start; padding:13px 18px 13px 20px; border-bottom:1px solid #1a2029; transition:background .18s ease; }
   .signal-row:hover{ background:linear-gradient(90deg, rgba(255,255,255,0.025), transparent 70%); }
@@ -648,7 +715,7 @@
     .profile-meta{ display:none; } /* trên di động chỉ hiện avatar cho gọn */
     .profile-btn{ padding:5px; }
     .profile-dropdown{ right:-8px; width:230px; }
-    .chip{ padding:6px 10px; font-size:11.5px; }
+    .chip{ padding:7px 12px; font-size:11.5px; }
 
     .ticker-card{ padding:14px 16px; gap:12px; }
     .symbol-name{ font-size:16px; }
@@ -695,13 +762,25 @@
     .signal-row{ padding:10px 14px; }
 
     /* Modal & popover/menu: không bao giờ vượt quá chiều rộng màn hình */
-    .modal-box{ width:min(360px, 92vw); padding:18px; }
+    .modal-box{ width:min(360px, 92vw); padding:18px; max-height:85vh; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
     .ind-popover{ width:min(230px, 92vw); }
     .indicator-menu{ width:min(270px, 92vw); max-height:60vh; }
 
     /* Toast cá mập: dàn theo mép trái/phải thay vì neo cứng 280px dễ tràn màn hình hẹp */
-    .toast-container{ left:10px; right:10px; bottom:14px; align-items:stretch; }
+    .toast-container{ left:10px; right:10px; bottom:calc(14px + env(safe-area-inset-bottom)); align-items:stretch; }
     .whale-toast{ min-width:0; width:100%; padding:12px 14px; gap:10px; }
+  }
+
+  /* ================= MÀN HÌNH RẤT NHỎ (≤ 380px, vd iPhone SE) ================= */
+  @media (max-width: 380px){
+    .search-box input{ width:66px; }
+    .brand-text{ font-size:12.5px; }
+    .brand-logo{ width:36px; height:36px; }
+    .symbol-name{ font-size:14.5px; }
+    .price-main{ font-size:19px; }
+    .stats-row{ gap:10px 14px; }
+    .stat-value{ font-size:12.5px; }
+    .chip{ padding:6px 10px; font-size:11px; }
   }
 
   /* --- GIAO DIỆN MÀN HÌNH ĐĂNG NHẬP BẮT BUỘC --- */
