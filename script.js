@@ -41,6 +41,7 @@
     trendFlat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 12l5-5M3 12l5 5M21 12l-5-5M21 12l-5 5"/></svg>',
     alertTriangle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2L22 20.5H2z"/><path d="M12 9.5v5.2"/><circle cx="12" cy="17.8" r="0.9" fill="currentColor" stroke="none"/></svg>',
     shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.6c0 4.6-3.1 8.4-7.5 9.4-4.4-1-7.5-4.8-7.5-9.4V6z"/><path d="M9 12l2.2 2.2L15.3 10"/></svg>',
+    extend: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12h19"/><path d="M6 8l-3.5 4L6 16"/><path d="M18 8l3.5 4-3.5 4"/></svg>',
   };
   function icon(name, cls) { return `<span class="ico${cls ? ' ' + cls : ''}">${ICONS[name] || ''}</span>`; }
 
@@ -163,11 +164,14 @@
   let reconnectTimeout = null; let syncInterval = null;
   let isLiveSignalPreview = false; let liveAnalysisTimer = null;
   let lastIndicatorUpdateTs = 0; // throttle tính lại chỉ báo khi giá chạy liên tục — tránh giật máy, đặc biệt trên mobile
-  // Phân tích tức thời trên nến đang chạy (chưa đóng) — throttle 3s để tránh giật máy khi tick dồn dập
+  // Phân tích tức thời trên nến đang chạy (chưa đóng) — throttle 1.2s (giảm từ 3s) để bắt tín hiệu MOMENTUM
+  // ngay khi vol bùng nổ thay vì đợi lâu. Đây là mức cân bằng: vẫn đủ mượt trên di động vì updateAllIndicators()
+  // là phần tốn CPU nhất, không phải phần dò tín hiệu. Nếu máy yếu bị giật khi thị trường biến động mạnh,
+  // có thể tăng lại giá trị này lên 2000-2500.
   function scheduleLiveAIAnalysis() {
     isLiveSignalPreview = true;
     if (liveAnalysisTimer) return;
-    liveAnalysisTimer = setTimeout(() => { liveAnalysisTimer = null; if (isLiveSignalPreview) runAIAnalysis(); }, 3000);
+    liveAnalysisTimer = setTimeout(() => { liveAnalysisTimer = null; if (isLiveSignalPreview) runAIAnalysis(); }, 1200);
   }
 
   // =========================================================
@@ -374,6 +378,32 @@
   // ngay khi Binance công bố số mới, không có ý nghĩa gọi nhanh hơn vì bản thân số liệu chưa đổi.
   setInterval(() => fetchBinanceSentiment(currentSymbol), 20000);
   setTimeout(() => fetchBinanceSentiment(currentSymbol), 1000);
+
+  // ===== LỊCH SỬ tỷ lệ Long/Short — để bộ lọc tâm lý đám đông áp dụng ĐÚNG cho TỪNG nến lịch sử khi
+  // chạy AI phân tích, thay vì chỉ áp dụng cho mỗi nến hiện tại (như trước đây). Nếu không có lịch sử
+  // này, các tín hiệu quá khứ hiển thị trong log sẽ KHÔNG phản ánh đúng việc lệnh có bị lọc/hủy hay
+  // không nếu chạy live — gây sai lệch khi tự đánh giá hiệu suất (backtest không nhất quán với live).
+  let lsHistory = []; // [{time (giây), ratio}] tăng dần theo thời gian
+  let lsHistoryPtr = 0; // reset về 0 mỗi lần runAIAnalysis() duyệt lại từ đầu (xem runAIAnalysis)
+  async function fetchHistoricalLSRatio(symbol = currentSymbol) {
+    try {
+      const res = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=500`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        lsHistory = data.map(d => ({ time: Math.floor(d.timestamp / 1000), ratio: parseFloat(d.longShortRatio) }))
+                        .filter(d => !isNaN(d.ratio)).sort((a, b) => a.time - b.time);
+      }
+    } catch (e) { console.error('Không lấy được lịch sử L/S:', e); lsHistory = []; }
+    lsHistoryPtr = 0;
+  }
+  // Lấy tỷ lệ L/S THẬT tại đúng thời điểm của 1 cây nến (con trỏ tăng dần, tái sử dụng cho cả vòng lặp)
+  function lsRatioAt(time) {
+    if (!lsHistory.length) return null;
+    while (lsHistoryPtr < lsHistory.length - 1 && lsHistory[lsHistoryPtr + 1].time <= time) lsHistoryPtr++;
+    return lsHistory[lsHistoryPtr].time <= time ? lsHistory[lsHistoryPtr].ratio : null;
+  }
+  fetchHistoricalLSRatio(currentSymbol);
+  setInterval(() => fetchHistoricalLSRatio(currentSymbol), 5 * 60 * 1000); // đúng chu kỳ gốc 5 phút của Binance
 
   // ===== Widget 2: Chỉ số Sợ hãi & Tham lam (Tâm lý thị trường chung — chuẩn phân loại như Binance) =====
   // Thang điểm 0-100: 0-24 Sợ hãi tột độ, 25-44 Sợ hãi, 45-55 Trung lập, 56-75 Tham lam, 76-100 Tham lam tột độ.
@@ -715,6 +745,12 @@
     // viện tự định dạng theo UTC nên lệch múi giờ so với tooltip tự viết bên dưới.
     localization: { timeFormatter: crosshairTimeFormatter },
     rightPriceScale: { minimumWidth: 90, alignLabels: true, scaleMargins: { top: 0.15, bottom: 0.15 } },
+    // FIX: bật "trượt theo quán tính" (kinetic/momentum) khi KÉO-THẢ CHUỘT, y hệt cảm giác lăn
+    // ngón tay trên điện thoại rồi thả ra vẫn thấy biểu đồ trôi thêm một đoạn rồi từ từ dừng lại.
+    // Mặc định thư viện lightweight-charts chỉ bật hiệu ứng này cho TOUCH (ngón tay), còn kéo bằng
+    // CHUỘT thì dừng khựng ngay khi thả nút — đây là lý do kéo/trượt bằng chuột cảm giác không mượt
+    // bằng lăn con lăn dọc trên trục giá (vốn đã được tự viết easing riêng bên dưới).
+    kineticScroll: { mouse: true, touch: true },
     crosshair: {
       // Normal: đường kẻ dọc (thời gian) vẫn tự bám sát nến gần nhất như bình thường, nhưng đường kẻ ngang (giá)
       // đi CHÍNH XÁC theo vị trí con trỏ chuột — đúng chuẩn Binance/TradingView. Trước đây để Magnet nên đường
@@ -945,9 +981,14 @@
   let lastPointerX = null, lastPointerY = null, pointerInsideChartWrapper = false;
   let crosshairKeepAliveLoopId = null;
   let lastKeepAliveRefreshTs = 0;
+  // FIX: khi người dùng đang GIỮ CHUỘT (kéo giãn trục giá bên phải, kéo pan/zoom, kéo bản vẽ...),
+  // tuyệt đối không được bắn thêm mousemove giả — nếu không thư viện chart sẽ nhận nhầm vị trí
+  // chuột (lẫn giữa toạ độ thật đang kéo và toạ độ giả lập cũ), khiến thao tác KÉO TRỤC GIÁ ĐỂ
+  // GIÃN/CO CHIỀU DỌC BIỂU ĐỒ (giống Binance/TradingView) bị giật/lag hoặc không bám theo chuột.
+  let isAnyMouseButtonDown = false;
   function crosshairKeepAliveLoop(ts) {
     if (!pointerInsideChartWrapper) { crosshairKeepAliveLoopId = null; return; } // chuột đã rời chart -> dừng vòng lặp
-    if (!isResizing && lastPointerX !== null && (ts - lastKeepAliveRefreshTs >= 60)) {
+    if (!isResizing && !isAnyMouseButtonDown && lastPointerX !== null && (ts - lastKeepAliveRefreshTs >= 60)) {
       lastKeepAliveRefreshTs = ts;
       Object.values(paneRegistry).forEach(reg => {
         const el = document.getElementById(reg.elId);
@@ -968,17 +1009,165 @@
     });
     wrapper.addEventListener('mouseleave', () => { pointerInsideChartWrapper = false; });
     // Chuột rời khỏi cả cửa sổ trình duyệt (ví dụ kéo qua tab khác) cũng phải coi là đã rời chart
-    window.addEventListener('blur', () => { pointerInsideChartWrapper = false; });
+    window.addEventListener('blur', () => { pointerInsideChartWrapper = false; isAnyMouseButtonDown = false; });
+    // FIX: bắt đầu giữ chuột trong vùng chart (kéo trục giá / pan / zoom / kéo bản vẽ...) -> tạm
+    // dừng NGAY việc bắn mousemove giả, để thao tác kéo gốc của thư viện chart không bị nhiễu.
+    // Dùng 'pointerdown' (bắt cả chuột lẫn bút cảm ứng) thay vì chỉ 'mousedown' cho chắc chắn.
+    wrapper.addEventListener('pointerdown', e => { if (e.button === 0 || e.pointerType !== 'mouse') isAnyMouseButtonDown = true; });
+    // Thả chuột ở BẤT KỲ ĐÂU trên trang (kể cả ngoài vùng chart) đều phải tính là đã thả — dùng window
+    // để không bị "kẹt" trạng thái nếu người dùng kéo ra ngoài rồi mới thả chuột.
+    window.addEventListener('pointerup', () => { isAnyMouseButtonDown = false; syncPriceScaleWidths(); });
+    window.addEventListener('pointercancel', () => { isAnyMouseButtonDown = false; });
   })();
   // Giữ lại hàm cũ để những nơi đang gọi keepCrosshairAlive() (ngay sau setData/update) vẫn ép vẽ lại
   // NGAY LẬP TỨC thay vì chờ tới khung hình kế tiếp của vòng lặp ở trên — vẫn hữu ích cho các bước nhảy
   // lớn như đổi coin/khung (scrollToRealTime), nên không cần xoá các lệnh gọi keepCrosshairAlive() cũ.
   function keepCrosshairAlive() {
-    if (!pointerInsideChartWrapper || lastPointerX === null || isResizing) return;
+    if (!pointerInsideChartWrapper || lastPointerX === null || isResizing || isAnyMouseButtonDown) return;
     Object.values(paneRegistry).forEach(reg => {
       const el = document.getElementById(reg.elId);
       forceCrosshairRefresh(el, lastPointerX, lastPointerY);
     });
+  }
+
+  // =========================================================
+  // FIX: LĂN CHUỘT (WHEEL) TRÊN TRỤC GIÁ DỌC BÊN PHẢI -> CO GIÃN TRỤC GIÁ (ZOOM DỌC), ĐÚNG CHUẨN
+  // CÁC SÀN LỚN (Binance/TradingView) — thay vì mặc định thư viện lightweight-charts coi MỌI thao
+  // tác lăn chuột trong pane (kể cả khi con trỏ đang nằm ngay trên dải trục giá) là zoom TRỤC THỜI
+  // GIAN (zoom ngang), y hệt như lăn chuột ở giữa biểu đồ — khiến trục giá không hề co giãn được
+  // bằng con lăn như người dùng mong đợi.
+  // Cách làm: bắt sự kiện wheel ở PHA "CAPTURE" ngay trên chính div chứa chart (chạy trước khi thư
+  // viện — vốn gắn listener sâu hơn bên trong — kịp xử lý), kiểm tra xem con trỏ có đang nằm trong
+  // đúng dải bề rộng trục giá hiện tại hay không. Nếu có: chặn hẳn hành vi mặc định (preventDefault +
+  // stopPropagation để thư viện không zoom ngang nữa).
+  // BẢN 1 (scaleMargins): mỗi lần lăn nhảy đúng MỘT bước cố định, và lề tối đa chỉ ~48%/bên -> vừa
+  // không mượt vừa không "thả ga" được.
+  // BẢN 2 (setVisibleRange nhảy thẳng): dùng đúng API co giãn khoảng giá của thư viện nên hết bị chặn
+  // bởi tỉ lệ lề, NHƯNG vẫn áp dụng NGAY LẬP TỨC kết quả mỗi lần lăn — con lăn chuột vật lý bắn ra
+  // từng "nấc" RỜI RẠC (không liên tục như trackpad), nên giữa 2 nấc, biểu đồ bị NHẢY THẲNG từ trạng
+  // thái này sang trạng thái khác chứ không hề có chuyển động — đây chính là lý do vẫn thấy "giật/
+  // không mượt" dù hệ số zoom đã tính đúng cường độ lăn.
+  // BẢN 3 (bản này) — THÊM HẲN MỘT VÒNG LẶP ANIMATION NỘI SUY (easing), y hệt cách Binance/TradingView/
+  // Google Maps làm: mỗi lần lăn chỉ CẬP NHẬT "điểm đích" (targetRange) cần tới, còn khoảng giá THỰC
+  // TẾ đang hiển thị (currentRange) sẽ được một vòng lặp requestAnimationFrame liên tục "đuổi theo"
+  // điểm đích đó theo từng khung hình với hệ số nội suy (EASE) — tạo chuyển động mượt liên tục dù bạn
+  // lăn từng nấc rời rạc trên chuột thường. Nếu lăn tiếp trong lúc đang nội suy, điểm đích chỉ được
+  // dời thêm — vòng lặp animation vẫn đang chạy sẽ tự đuổi theo điểm đích MỚI luôn, không bị giật.
+  const AXIS_WHEEL_SENSITIVITY = 0.0011; // càng lớn càng zoom nhanh mỗi "nấc" lăn chuột (đã giảm ~1/2 cho dễ điều khiển hơn)
+  const AXIS_WHEEL_EASE = 0.25; // hệ số đuổi theo đích mỗi khung hình (0-1) — càng nhỏ càng mượt/trễ, càng lớn càng bám sát/nhanh
+  const AXIS_WHEEL_RESYNC_GAP_MS = 250; // ngừng lăn quá lâu -> lần lăn tiếp theo coi là cử chỉ MỚI, đọc lại đúng khoảng giá thực tế hiện tại (tránh lệch nếu autoScale/pan/đổi coin đã thay đổi nó ở nơi khác)
+  function attachPriceAxisWheelZoom(chart, paneId) {
+    const el = getPaneChartElement(paneId);
+    if (!el) return;
+    let currentRange = null; // khoảng giá ĐANG hiển thị trên chart tại thời điểm hiện tại (được nội suy dần)
+    let targetRange = null;  // khoảng giá ĐÍCH cần đuổi tới, cập nhật mỗi lần có sự kiện wheel mới
+    let animId = null;
+    let lastWheelTs = 0;
+    function animateStep() {
+      let ps;
+      try { ps = chart.priceScale('right'); } catch (err) { animId = null; return; }
+      if (!currentRange || !targetRange) { animId = null; return; }
+      const span = Math.max(targetRange.to - targetRange.from, Number.EPSILON);
+      const nf = currentRange.from + (targetRange.from - currentRange.from) * AXIS_WHEEL_EASE;
+      const nt = currentRange.to + (targetRange.to - currentRange.to) * AXIS_WHEEL_EASE;
+      currentRange = { from: nf, to: nt };
+      try { ps.setAutoScale(false); ps.setVisibleRange(currentRange); } catch (err) { animId = null; return; }
+      const closeEnough = Math.abs(targetRange.from - nf) < span * 0.0004 && Math.abs(targetRange.to - nt) < span * 0.0004;
+      if (closeEnough) { currentRange = { from: targetRange.from, to: targetRange.to }; try { ps.setVisibleRange(currentRange); } catch (err) {} animId = null; return; }
+      animId = requestAnimationFrame(animateStep);
+    }
+    el.addEventListener('wheel', e => {
+      let axisWidth = 90;
+      let ps;
+      try { ps = chart.priceScale('right'); axisWidth = ps.width() || 90; } catch (err) { return; }
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x < rect.width - axisWidth) return; // con trỏ không nằm trên trục giá -> để thư viện tự xử lý (zoom ngang) như cũ
+      e.preventDefault(); e.stopPropagation();
+      const now = performance.now();
+      if (!targetRange || (now - lastWheelTs) > AXIS_WHEEL_RESYNC_GAP_MS) {
+        // Bắt đầu một cử chỉ lăn MỚI (hoặc lần đầu) -> đọc đúng khoảng giá thực tế hiện tại làm gốc,
+        // tránh dùng targetRange cũ đã lệch do double-click reset / kéo / đổi coin ở nơi khác.
+        let r = null;
+        try { r = ps.getVisibleRange(); } catch (err) {}
+        if (!r) return;
+        currentRange = { from: r.from, to: r.to };
+        targetRange = { from: r.from, to: r.to };
+      }
+      lastWheelTs = now;
+      // Lăn xuống (deltaY > 0) = zoom ra (khoảng giá hiển thị RỘNG hơn); lăn lên = zoom vào (HẸP hơn).
+      // Dùng hàm mũ để hệ số luôn tỉ lệ thuận mượt mà với cường độ lăn, không có bước nhảy cứng.
+      const factor = Math.exp(e.deltaY * AXIS_WHEEL_SENSITIVITY);
+      const center = (targetRange.from + targetRange.to) / 2;
+      const halfSpan = Math.max((targetRange.to - targetRange.from) / 2 * factor, Number.EPSILON);
+      targetRange = { from: center - halfSpan, to: center + halfSpan };
+      if (animId === null) animId = requestAnimationFrame(animateStep);
+    }, { passive: false, capture: true });
+  }
+
+  // =========================================================
+  // FIX: LĂN CHUỘT (WHEEL) Ở GIỮA BIỂU ĐỒ -> ZOOM NGANG (TRỤC THỜI GIAN), ÁP DỤNG ĐÚNG VÒNG LẶP
+  // NỘI SUY (easing) Y HỆT bản zoom dọc trên trục giá bên trên (attachPriceAxisWheelZoom), để cảm
+  // giác lăn chuột zoom ngang mượt/liên tục giống hệt zoom dọc, thay vì thư viện mặc định nhảy
+  // thẳng từng nấc rời rạc theo đúng cường độ con lăn vật lý (giật, không mượt).
+  // Cách làm: bắt 'wheel' ở PHA CAPTURE ngay trên div chứa chart (chạy trước khi thư viện xử lý),
+  // chỉ can thiệp khi đây là cử chỉ ZOOM (lăn dọc deltaY chiếm ưu thế) và con trỏ KHÔNG nằm trên
+  // dải trục giá bên phải (dải đó đã được attachPriceAxisWheelZoom xử lý riêng ở trên).
+  // Nếu là cử chỉ CUỘN NGANG bằng trackpad (deltaX chiếm ưu thế) thì bỏ qua, để thư viện tự pan
+  // ngang như bình thường — không đụng tới, tránh làm hỏng thao tác vuốt 2 ngón cuộn ngang.
+  // Điểm neo (center) khi zoom được tính đúng NGAY TẠI VỊ TRÍ CON TRỎ (giống Binance/TradingView)
+  // thay vì luôn neo giữa màn hình, để lăn chuột ở đâu thì "phóng to" đúng ngay chỗ đó.
+  const TIME_WHEEL_SENSITIVITY = 0.0011; // đã giảm ~1/2 so với ban đầu cho dễ điều khiển hơn
+  const TIME_WHEEL_EASE = 0.25;
+  const TIME_WHEEL_RESYNC_GAP_MS = 250;
+  function attachTimeWheelZoom(chart, paneId) {
+    const el = getPaneChartElement(paneId);
+    if (!el) return;
+    const ts = chart.timeScale();
+    let currentRange = null; // khoảng logical ĐANG hiển thị (nội suy dần mỗi khung hình)
+    let targetRange = null;  // khoảng logical ĐÍCH cần đuổi tới
+    let animId = null;
+    let lastWheelTs = 0;
+    function animateStep() {
+      if (!currentRange || !targetRange) { animId = null; return; }
+      const span = Math.max(targetRange.to - targetRange.from, Number.EPSILON);
+      const nf = currentRange.from + (targetRange.from - currentRange.from) * TIME_WHEEL_EASE;
+      const nt = currentRange.to + (targetRange.to - currentRange.to) * TIME_WHEEL_EASE;
+      currentRange = { from: nf, to: nt };
+      try { ts.setVisibleLogicalRange(currentRange); } catch (err) { animId = null; return; }
+      const closeEnough = Math.abs(targetRange.from - nf) < span * 0.0004 && Math.abs(targetRange.to - nt) < span * 0.0004;
+      if (closeEnough) { currentRange = { from: targetRange.from, to: targetRange.to }; try { ts.setVisibleLogicalRange(currentRange); } catch (err) {} animId = null; return; }
+      animId = requestAnimationFrame(animateStep);
+    }
+    el.addEventListener('wheel', e => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // cuộn ngang trackpad -> để thư viện tự pan, không can thiệp
+      let axisWidth = 90;
+      let ps;
+      try { ps = chart.priceScale('right'); axisWidth = ps.width() || 90; } catch (err) {}
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x >= rect.width - axisWidth) return; // con trỏ đang nằm trên trục giá -> đã có attachPriceAxisWheelZoom lo
+      e.preventDefault(); e.stopPropagation();
+      const now = performance.now();
+      if (!targetRange || (now - lastWheelTs) > TIME_WHEEL_RESYNC_GAP_MS) {
+        let r = null;
+        try { r = ts.getVisibleLogicalRange(); } catch (err) {}
+        if (!r) return;
+        currentRange = { from: r.from, to: r.to };
+        targetRange = { from: r.from, to: r.to };
+      }
+      lastWheelTs = now;
+      // Lăn xuống (deltaY > 0) = zoom ra (thấy nhiều nến hơn); lăn lên = zoom vào (thấy ít nến, nến to hơn).
+      const factor = Math.exp(e.deltaY * TIME_WHEEL_SENSITIVITY);
+      // Neo đúng tại vị trí con trỏ chuột thay vì luôn neo giữa, để zoom "vào đúng chỗ đang trỏ".
+      let center = (targetRange.from + targetRange.to) / 2;
+      try {
+        const cursorLogical = ts.coordinateToLogical(x);
+        if (cursorLogical !== null && cursorLogical !== undefined && isFinite(cursorLogical)) center = cursorLogical;
+      } catch (err) {}
+      targetRange = { from: center + (targetRange.from - center) * factor, to: center + (targetRange.to - center) * factor };
+      if (animId === null) animId = requestAnimationFrame(animateStep);
+    }, { passive: false, capture: true });
   }
   function resizeAllCharts() {
     const wrapper = document.getElementById('chart-wrapper');
@@ -1032,7 +1221,10 @@
   // khung hình. Đổi sang kiểm tra định kỳ (rất nhẹ) và tạm dừng hẳn khi tab đang ẩn.
   let lastSyncedAxisWidth = 0;
   function widthSyncWatchLoop() {
-    if (document.hidden) return;
+    // FIX: không đo/ép lại độ rộng trục trong lúc người dùng đang giữ chuột kéo (kéo giãn trục giá,
+    // pan, zoom...) — áp lại option cho priceScale giữa chừng một thao tác kéo sẽ làm nó bị "giật".
+    // Vẫn sẽ tự đồng bộ lại ngay khi thả chuột (xem listener 'pointerup' ở trên) nên không mất tác dụng.
+    if (document.hidden || isAnyMouseButtonDown) return;
     const regs = Object.values(paneRegistry).filter(r => r && r.chart);
     if (regs.length) {
       let maxWidth = 90;
@@ -1346,6 +1538,8 @@
     registerTimeScale(chart.timeScale());
     attachCrosshairSync(chart, id);
     attachPanEndCrosshairFix(id);
+    attachPriceAxisWheelZoom(chart, id);
+    attachTimeWheelZoom(chart, id);
     attachPaneHeaderEvents(paneEl.querySelector('.pane-header'));
     attachPaneReorderDropTarget(paneEl);
     attachPaneDropZone(paneEl, id);
@@ -1633,7 +1827,27 @@
   // Dữ liệu vẽ được lưu riêng theo từng mã coin trong localStorage, giữ nguyên khi đổi khung thời gian.
   // =========================================================
   const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.272, 1.618];
-  const TOOL_POINTS = { trendline: 2, ray: 2, hline: 1, hray: 1, vline: 1, channel: 3, fib: 2, rect: 2, circle: 2, arrow: 2, text: 1, measure: 2 };
+  const TOOL_POINTS = {
+    trendline: 2, ray: 2, hline: 1, hray: 1, vline: 1, channel: 3, fib: 2, rect: 2, circle: 2, arrow: 2, text: 1, measure: 2,
+    // ===== Nhóm ĐƯỜNG (bổ sung) =====
+    infoline: 2,      // Đường thông tin: như đường xu hướng, kèm nhãn Δgiá/%/số nến/góc ngay trên đường
+    extline: 2,       // Đường mở rộng: 1 đường thẳng kéo dài vô hạn CẢ HAI đầu ngay khi vẽ xong
+    angle: 2,         // Góc xu hướng: đường xu hướng + đường tham chiếu ngang + cung đo góc (độ)
+    crossline: 1,     // Đường chữ thập: 1 đường ngang + 1 đường dọc cắt nhau tại đúng điểm click
+    // ===== Nhóm KÊNH (bổ sung) =====
+    regression: 2,    // Kênh hồi quy tuyến tính: chọn 2 điểm để xác định vùng thời gian, đường trung tâm + biên trên/dưới tự tính bằng hồi quy tuyến tính
+    flatchannel: 3,   // Kênh mặt phẳng đỉnh/đáy: đường chính nghiêng theo xu hướng, đường thứ 2 luôn NẰM NGANG tại điểm thứ 3
+    disjointchannel: 4 // Kênh rời rạc: 2 đoạn thẳng độc lập (không bắt buộc song song), mỗi đoạn 2 điểm
+  };
+  // Tên hiển thị của từng loại bản vẽ — hiện thành 1 nhãn nhỏ cạnh bản vẽ khi nó đang được CHỌN,
+  // giống cách TradingView hiện tên công cụ (vd "Trend Line") ngay trên đối tượng đang chọn.
+  const TOOL_LABELS = {
+    trendline: 'Đường xu hướng', ray: 'Tia', hline: 'Đường nằm ngang', hray: 'Tia nằm ngang',
+    vline: 'Đường thẳng đứng', channel: 'Kênh song song', fib: 'Fibonacci', rect: 'Hình chữ nhật',
+    circle: 'Hình tròn', arrow: 'Mũi tên', text: 'Văn bản', measure: 'Đo lường', polyline: 'Bút vẽ',
+    infoline: 'Đường thông tin', extline: 'Đường mở rộng', angle: 'Góc xu hướng', crossline: 'Đường chữ thập',
+    regression: 'Xu hướng hồi quy', flatchannel: 'Mặt phẳng đỉnh/đáy', disjointchannel: 'Kênh rời rạc'
+  };
   const HINT_TEXT = {
     trendline: 'Click điểm đầu, rồi click điểm cuối để vẽ đường xu hướng',
     ray: 'Click điểm đầu, rồi click hướng đi để vẽ tia xu hướng (kéo dài vô hạn)',
@@ -1648,7 +1862,14 @@
     arrow: 'Click điểm bắt đầu, rồi click vị trí đầu mũi tên',
     text: 'Click vào vị trí muốn chèn ghi chú',
     measure: 'Click điểm đầu, rồi click điểm cuối để đo chênh lệch giá/%/số nến',
-    eraser: 'Click vào 1 bản vẽ để xoá riêng bản vẽ đó'
+    eraser: 'Click vào 1 bản vẽ để xoá riêng bản vẽ đó',
+    infoline: 'Click điểm đầu, rồi click điểm cuối — hiện sẵn Δgiá / % / số nến / góc trên đường',
+    extline: 'Click 2 điểm — đường sẽ tự kéo dài vô hạn về cả hai phía',
+    angle: 'Click điểm đầu, rồi click điểm cuối để đo góc xu hướng so với đường nằm ngang',
+    crossline: 'Click 1 điểm để đặt đường chữ thập (ngang + dọc cắt nhau tại đó)',
+    regression: 'Click điểm đầu, rồi click điểm cuối vùng thời gian — kênh hồi quy tuyến tính tự tính theo giá đóng cửa',
+    flatchannel: 'Click 2 điểm vẽ đường chính, click điểm thứ 3 để đặt mức NẰM NGANG (đỉnh hoặc đáy)',
+    disjointchannel: 'Click 2 điểm vẽ đoạn thẳng thứ nhất, rồi click 2 điểm tiếp để vẽ đoạn thẳng thứ hai (không cần song song)'
   };
 
   let currentTool = 'cursor';
@@ -1697,6 +1918,7 @@
     if (typeof d.width !== 'number') d.width = 2;
     if (typeof d.hidden !== 'boolean') d.hidden = false;
     if (typeof d.locked !== 'boolean') d.locked = false;
+    if (typeof d.extend !== 'string') d.extend = 'none'; // 'none' | 'right' | 'left' | 'both' — chỉ áp dụng cho trendline/channel
     return d;
   }
 
@@ -1760,6 +1982,59 @@
   }
   window.addEventListener('resize', () => ensureDrawLoopRunning());
 
+  // ===== Tooltip riêng cho thanh công cụ vẽ — thay tooltip mặc định thô của trình duyệt bằng
+  // 1 khung nhỏ đồng bộ theme: icon lấy trực tiếp từ nút + tên công cụ đậm + mô tả ngắn bên dưới
+  // (nếu title có dạng "Tên — mô tả"), hiện sát mép phải nút, giống TradingView. =====
+  (function setupToolbarTooltips() {
+    const tt = document.createElement('div');
+    tt.className = 'custom-tooltip';
+    tt.innerHTML = '<span class="ctt-icon"></span><span class="ctt-text"><span class="ctt-label"></span><span class="ctt-sub"></span></span>';
+    document.body.appendChild(tt);
+    const ttIcon = tt.querySelector('.ctt-icon'), ttLabel = tt.querySelector('.ctt-label'), ttSub = tt.querySelector('.ctt-sub');
+    let showTimer = null, hideTimer = null, currentEl = null;
+
+    function positionTooltip(el) {
+      const r = el.getBoundingClientRect();
+      tt.style.left = '0px'; tt.style.top = '0px'; // reset trước khi đo lại kích thước thật
+      const ttw = tt.offsetWidth, tth = tt.offsetHeight;
+      let left = r.right + 10, top = r.top + r.height / 2 - tth / 2;
+      if (left + ttw > window.innerWidth - 6) left = r.left - ttw - 10; // hết chỗ bên phải -> lật sang trái
+      top = Math.max(6, Math.min(window.innerHeight - tth - 6, top));
+      tt.style.left = left + 'px'; tt.style.top = top + 'px';
+    }
+    function showFor(el) {
+      const raw = el.getAttribute('data-tt'); if (!raw) return;
+      const parts = raw.split(' — ');
+      ttLabel.textContent = parts[0];
+      ttSub.textContent = parts[1] || ''; ttSub.style.display = parts[1] ? 'block' : 'none';
+      const svg = el.querySelector('svg'); ttIcon.innerHTML = svg ? svg.outerHTML : '';
+      ttIcon.style.display = svg ? 'flex' : 'none';
+      currentEl = el;
+      tt.classList.add('show');
+      positionTooltip(el);
+    }
+    function hide() { tt.classList.remove('show'); currentEl = null; }
+
+    document.querySelectorAll('.drawing-toolbar [title]').forEach(el => {
+      const label = el.getAttribute('title');
+      el.setAttribute('data-tt', label);
+      el.removeAttribute('title'); // tắt hẳn tooltip mặc định của trình duyệt để không hiện chồng 2 lớp
+      el.addEventListener('pointerenter', e => {
+        if (e.pointerType !== 'mouse') return; // trên cảm ứng không hiện tooltip hover
+        clearTimeout(hideTimer);
+        showTimer = setTimeout(() => showFor(el), 260);
+      });
+      el.addEventListener('pointerleave', () => {
+        clearTimeout(showTimer);
+        hideTimer = setTimeout(hide, 60);
+      });
+      el.addEventListener('pointerdown', hide);
+    });
+    // Nếu nút đang hiện tooltip bị cuộn/kéo ra khỏi vị trí (vd flyout mở ra), cập nhật lại vị trí
+    window.addEventListener('scroll', () => { if (currentEl) positionTooltip(currentEl); }, true);
+  })();
+
+
   // ===== Thanh công cụ nổi cho bản vẽ đang được chọn (đổi màu / độ dày / ẩn / nhân bản / khoá / xoá) =====
   const objToolbar = document.createElement('div');
   objToolbar.className = 'draw-obj-toolbar';
@@ -1767,6 +2042,7 @@
     <button type="button" class="dot-swatch" data-act="color" title="Đổi màu"><span class="dot-swatch-inner"></span></button>
     <input type="color" class="dot-color-input">
     <button type="button" data-act="width" title="Độ dày nét">2px</button>
+    <button type="button" data-act="extend" title="Kéo dài đường">${icon('extend')}</button>
     <button type="button" data-act="eye" title="Ẩn/hiện bản vẽ này">${icon('eye')}</button>
     <button type="button" data-act="dup" title="Nhân bản">${icon('copy')}</button>
     <button type="button" data-act="lock" title="Khoá bản vẽ này">${icon('unlock')}</button>
@@ -1776,6 +2052,7 @@
   const objColorInput = objToolbar.querySelector('.dot-color-input');
   const objSwatchDot = objToolbar.querySelector('.dot-swatch-inner');
   const objWidthBtn = objToolbar.querySelector('[data-act="width"]');
+  const objExtendBtn = objToolbar.querySelector('[data-act="extend"]');
   const objEyeBtn = objToolbar.querySelector('[data-act="eye"]');
   const objLockBtn = objToolbar.querySelector('[data-act="lock"]');
 
@@ -1797,6 +2074,14 @@
     if (!d) return;
     objSwatchDot.style.background = d.color;
     objWidthBtn.textContent = (d.width || 2) + 'px';
+    const canExtend = d.type === 'trendline' || d.type === 'channel' || d.type === 'flatchannel';
+    objExtendBtn.style.display = canExtend ? '' : 'none';
+    if (canExtend) {
+      const mode = d.extend || 'none';
+      objExtendBtn.classList.toggle('toggle-on', mode !== 'none');
+      const modeLabel = { none: 'Tắt', right: 'Bên phải', left: 'Bên trái', both: 'Cả 2 bên' }[mode];
+      objExtendBtn.title = 'Kéo dài đường (hiện: ' + modeLabel + ') — click để đổi';
+    }
     objEyeBtn.innerHTML = d.hidden ? icon('eyeOff') : icon('eye');
     objEyeBtn.classList.toggle('toggle-on', !!d.hidden);
     objLockBtn.innerHTML = d.locked ? icon('lock') : icon('unlock');
@@ -1829,6 +2114,16 @@
       d.width = WIDTH_STEPS[(cur + 1) % WIDTH_STEPS.length]; saveDrawings(); refreshObjToolbarContent(d); return;
     }
     if (act === 'eye') { d.hidden = !d.hidden; saveDrawings(); refreshObjToolbarContent(d); return; }
+    if (act === 'extend') {
+      if (isDrawLocked(d)) { showDrawToast('Bản vẽ đang bị khoá'); return; }
+      const order = ['none', 'right', 'left', 'both'];
+      const cur = order.indexOf(d.extend || 'none');
+      d.extend = order[(cur + 1) % order.length];
+      saveDrawings(); refreshObjToolbarContent(d);
+      const modeLabel = { none: 'Tắt', right: 'Bên phải', left: 'Bên trái', both: 'Cả 2 bên' }[d.extend];
+      showDrawToast('Kéo dài đường: ' + modeLabel);
+      return;
+    }
     if (act === 'lock') { d.locked = !d.locked; saveDrawings(); refreshObjToolbarContent(d); return; }
     if (act === 'dup') {
       const clone = JSON.parse(JSON.stringify(d));
@@ -1896,6 +2191,17 @@
     const targetX = dx >= 0 ? W : 0; const t = (targetX - p1.x) / dx;
     return { x: targetX, y: p1.y + dy * t };
   }
+  // Tính 2 đầu mút SAU KHI áp dụng chế độ "kéo dài" (extend) của Đường xu hướng / Kênh giá, giống
+  // tuỳ chọn "Extend Line" (None/Left/Right/Both) của TradingView. 'right' kéo dài đầu p2 ra mép phải
+  // (dùng lại đúng công thức extendRay theo hướng p1->p2); 'left' kéo dài đầu p1 ra mép trái (đảo chiều,
+  // dùng extendRay theo hướng p2->p1); 'both' áp dụng cả hai; 'none' giữ nguyên đoạn thẳng gốc.
+  function extendedEndpoints(d, p1, p2) {
+    const mode = d.extend || 'none';
+    let a = p1, b = p2;
+    if (mode === 'right' || mode === 'both') b = extendRay(p1, p2);
+    if (mode === 'left' || mode === 'both') a = extendRay(p2, p1);
+    return { a, b };
+  }
   function drawArrowHead(p1, p2) {
     const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x); const len = 10;
     dctx.beginPath(); dctx.moveTo(p2.x, p2.y); dctx.lineTo(p2.x - len * Math.cos(angle - 0.4), p2.y - len * Math.sin(angle - 0.4));
@@ -1924,6 +2230,163 @@
       }
     });
   }
+  // ===== Đường thông tin: hiện Δgiá / % / số nến / góc ngay trên đường, giống "Info Line" của TradingView =====
+  function drawInfoLineLabel(d, p1, p2) {
+    const priceDiff = d.points[1].price - d.points[0].price;
+    const pct = d.points[0].price ? (priceDiff / d.points[0].price) * 100 : 0;
+    const bars = countBarsBetween(d.points[0].time, d.points[1].time);
+    const angleDeg = (Math.atan2(-(p2.y - p1.y), p2.x - p1.x) * 180 / Math.PI);
+    const up = priceDiff >= 0;
+    const label = (up ? '+' : '') + fmt(priceDiff) + '  (' + (up ? '+' : '') + pct.toFixed(2) + '%)  •  ' + bars + ' nến  •  ' + angleDeg.toFixed(1) + '°';
+    dctx.font = '600 10.5px "JetBrains Mono", monospace';
+    const tw = dctx.measureText(label).width;
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    const boxW = tw + 12, boxH = 18;
+    const bx = Math.max(2, Math.min(W - boxW - 2, mx - boxW / 2)), by = my - boxH - 6;
+    dctx.fillStyle = d.color;
+    if (dctx.roundRect) { dctx.beginPath(); dctx.roundRect(bx, by, boxW, boxH, 3); dctx.fill(); } else dctx.fillRect(bx, by, boxW, boxH);
+    dctx.fillStyle = textColorFor(d.color); dctx.textBaseline = 'middle'; dctx.textAlign = 'left';
+    dctx.fillText(label, bx + 6, by + boxH / 2 + 0.5);
+  }
+  // ===== Góc xu hướng: đường + đường tham chiếu ngang (nét đứt) + cung tròn đo góc (độ) so với phương ngang =====
+  function drawAngleTool(d, p1, p2) {
+    dctx.save();
+    dctx.globalAlpha = 0.55; dctx.setLineDash([4, 3]);
+    lineRaw(p1.x, p1.y, p2.x, p1.y);
+    dctx.setLineDash([]); dctx.globalAlpha = 1;
+    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+    const angleRad = Math.atan2(dy, dx); // toạ độ màn hình: y dương là xuống dưới
+    const angleDeg = -(angleRad * 180 / Math.PI); // đảo dấu để ra góc theo quy ước toán học (lên trên = dương)
+    const r = Math.max(16, Math.min(38, Math.hypot(dx, dy) * 0.35));
+    dctx.beginPath();
+    if (angleRad >= 0) dctx.arc(p1.x, p1.y, r, 0, angleRad); else dctx.arc(p1.x, p1.y, r, angleRad, 0);
+    dctx.globalAlpha = 0.8; dctx.stroke(); dctx.globalAlpha = 1;
+    const label = Math.abs(angleDeg).toFixed(1) + '°';
+    dctx.font = '700 11px "JetBrains Mono", monospace';
+    const tw = dctx.measureText(label).width;
+    const lx = p1.x + (dx >= 0 ? r + 8 : -r - 8 - tw);
+    const ly = p1.y + (dy >= 0 ? 16 : -12);
+    dctx.textBaseline = 'middle'; dctx.textAlign = 'left'; dctx.fillStyle = d.color;
+    dctx.fillText(label, lx, ly);
+    dctx.restore();
+  }
+  // ===== Kênh hồi quy tuyến tính: đường trung tâm = hồi quy giá đóng cửa theo thời gian trong vùng chọn,
+  // 2 biên song song cách trung tâm ±2 lần độ lệch chuẩn (std dev) của phần dư — đúng nguyên lý TradingView "Linear Regression Channel" =====
+  function computeRegression(d) {
+    if (!d.points[0] || !d.points[1] || !candlesData.length) return null;
+    const t1 = d.points[0].time, t2 = d.points[1].time;
+    const lo = Math.min(t1, t2), hi = Math.max(t1, t2);
+    const bars = candlesData.filter(c => c.time >= lo && c.time <= hi);
+    const n = bars.length;
+    if (n < 2) return null;
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0, sumYY = 0;
+    bars.forEach((c, i) => { sumX += i; sumY += c.close; sumXY += i * c.close; sumXX += i * i; sumYY += c.close * c.close; });
+    const meanX = sumX / n, meanY = sumY / n;
+    const denom = sumXX - n * meanX * meanX;
+    const slope = denom !== 0 ? (sumXY - n * meanX * meanY) / denom : 0;
+    const intercept = meanY - slope * meanX;
+    let sumSqErr = 0;
+    bars.forEach((c, i) => { const pred = intercept + slope * i; sumSqErr += (c.close - pred) * (c.close - pred); });
+    const stdDev = Math.sqrt(sumSqErr / n);
+    // Hệ số tương quan Pearson (Pearson's R) — TradingView luôn hiện số này ở góc bắt đầu kênh hồi quy
+    // (vd 0.94...), cho biết mức độ khớp của đường xu hướng tuyến tính với giá thực tế.
+    const covXY = sumXY / n - meanX * meanY;
+    const varX = sumXX / n - meanX * meanX;
+    const varY = sumYY / n - meanY * meanY;
+    const pearsonR = (varX > 0 && varY > 0) ? covXY / Math.sqrt(varX * varY) : 0;
+    return { bars, slope, intercept, stdDev, pearsonR, t1: bars[0].time, t2: bars[n - 1].time, n };
+  }
+  // ===== Vị trí chấm neo THỰC SỰ nằm trên hình vẽ (không phải giá thô lúc click) =====
+  // Với "regression", đường tâm hiển thị là kết quả TÍNH LẠI bằng hồi quy tuyến tính trên toàn bộ
+  // giá đóng cửa trong vùng — gần như không bao giờ trùng đúng giá bạn đã click. Nếu vẽ chấm neo tại
+  // giá click thô (như các tool khác), chấm sẽ lệch khỏi đường kênh, kéo tới đâu thấy "rời" tới đó.
+  // Hàm này buộc chấm luôn bám đúng lên đường hồi quy đã tính, giữ nguyên thứ tự d.points[0]/[1].
+  function handleScreenPoints(d) {
+    if (d.type === 'regression') {
+      const r = computeRegression(d);
+      if (r) {
+        const yAt = i => r.intercept + r.slope * i;
+        const xStart = xOf(r.t1), yStart = yOf(yAt(0));
+        const xEnd = xOf(r.t2), yEnd = yOf(yAt(r.n - 1));
+        if (xStart != null && yStart != null && xEnd != null && yEnd != null) {
+          const p0IsEarlier = d.points[0].time <= d.points[1].time;
+          const out = [];
+          out[p0IsEarlier ? 0 : 1] = { x: xStart, y: yStart };
+          out[p0IsEarlier ? 1 : 0] = { x: xEnd, y: yEnd };
+          return out;
+        }
+      }
+    }
+    return (d.points || []).map(xy);
+  }
+  function drawRegression(d) {
+    const r = computeRegression(d); if (!r) return;
+    const mult = 2; // độ rộng kênh mặc định = 2 lần độ lệch chuẩn, giống mặc định của TradingView
+    const yAt = i => r.intercept + r.slope * i;
+    const x1 = xOf(r.t1), x2 = xOf(r.t2);
+    const yc1 = yOf(yAt(0)), yc2 = yOf(yAt(r.n - 1));
+    const yu1 = yOf(yAt(0) + r.stdDev * mult), yu2 = yOf(yAt(r.n - 1) + r.stdDev * mult);
+    const yd1 = yOf(yAt(0) - r.stdDev * mult), yd2 = yOf(yAt(r.n - 1) - r.stdDev * mult);
+    if (x1 == null || x2 == null || yc1 == null || yc2 == null) return;
+    const upCol = currentUpColor || '#14cc8a', downCol = currentDownColor || '#ff4757';
+    if (yu1 != null && yd1 != null && yu2 != null && yd2 != null) {
+      // Tô 2 sắc thái quanh đường hồi quy trung tâm — nửa trên (vượt dự đoán) theo màu tăng,
+      // nửa dưới theo màu giảm, giống hiệu ứng kênh hồi quy đẹp mắt của TradingView thay vì 1 màu phẳng.
+      dctx.fillStyle = upCol + '26';
+      dctx.beginPath(); dctx.moveTo(x1, yu1); dctx.lineTo(x2, yu2); dctx.lineTo(x2, yc2); dctx.lineTo(x1, yc1); dctx.closePath(); dctx.fill();
+      dctx.fillStyle = downCol + '26';
+      dctx.beginPath(); dctx.moveTo(x1, yc1); dctx.lineTo(x2, yc2); dctx.lineTo(x2, yd2); dctx.lineTo(x1, yd1); dctx.closePath(); dctx.fill();
+    }
+    // 2 đường biên kênh: nét liền, đậm — đóng khung rõ ràng như TradingView
+    dctx.save();
+    dctx.lineWidth = d.width || 2;
+    if (yu1 != null && yu2 != null) lineRaw(x1, yu1, x2, yu2);
+    if (yd1 != null && yd2 != null) lineRaw(x1, yd1, x2, yd2);
+    dctx.restore();
+    // Đường hồi quy trung tâm: mảnh, mờ, đứt nét — chỉ mang tính tham chiếu, không lấn át 2 biên kênh
+    dctx.save();
+    dctx.lineWidth = Math.max(1, (d.width || 2) - 1);
+    dctx.globalAlpha = 0.5;
+    dctx.setLineDash([5, 4]);
+    lineRaw(x1, yc1, x2, yc2);
+    dctx.setLineDash([]);
+    dctx.restore();
+    // Nhãn hệ số tương quan Pearson's R — TradingView luôn hiện mặc định ở góc dưới-trái của kênh,
+    // ngay dưới biên dưới tại điểm bắt đầu (vd "0.9442789370759614").
+    if (yd1 != null) {
+      dctx.font = '400 11px "JetBrains Mono", monospace';
+      dctx.fillStyle = d.color;
+      dctx.textAlign = 'left'; dctx.textBaseline = 'top';
+      dctx.fillText(r.pearsonR.toFixed(13), x1, yd1 + 4);
+    }
+  }
+  // ===== Kênh mặt phẳng đỉnh/đáy: đường chính nghiêng theo 2 điểm đầu, đường thứ 2 luôn NẰM NGANG
+  // tại đúng mức giá của điểm thứ 3 — khác Kênh song song (đường 2 luôn song song, không nằm ngang) =====
+  function drawFlatChannel(d) {
+    const p1 = xy(d.points[0]), p2raw = d.points[1] ? xy(d.points[1]) : null;
+    if (!p1 || !p2raw) return;
+    const ext = extendedEndpoints(d, p1, p2raw); const pStart = ext.a, pEnd = ext.b;
+    lineRaw(pStart.x, pStart.y, pEnd.x, pEnd.y);
+    if (d.points[2]) {
+      const p3 = xy(d.points[2]);
+      if (p3) {
+        lineRaw(pStart.x, p3.y, pEnd.x, p3.y);
+        dctx.fillStyle = d.color + '1c';
+        dctx.beginPath(); dctx.moveTo(pStart.x, pStart.y); dctx.lineTo(pEnd.x, pEnd.y); dctx.lineTo(pEnd.x, p3.y); dctx.lineTo(pStart.x, p3.y); dctx.closePath(); dctx.fill();
+      }
+    }
+  }
+  // ===== Kênh rời rạc: 2 đoạn thẳng độc lập, KHÔNG bắt buộc song song (khác hẳn Kênh song song) =====
+  function drawDisjointChannel(d) {
+    const p1 = xy(d.points[0]), p2 = d.points[1] ? xy(d.points[1]) : null;
+    const p3 = d.points[2] ? xy(d.points[2]) : null, p4 = d.points[3] ? xy(d.points[3]) : null;
+    if (p1 && p2) lineRaw(p1.x, p1.y, p2.x, p2.y);
+    if (p3 && p4) lineRaw(p3.x, p3.y, p4.x, p4.y);
+    if (p1 && p2 && p3 && p4) {
+      dctx.fillStyle = d.color + '14';
+      dctx.beginPath(); dctx.moveTo(p1.x, p1.y); dctx.lineTo(p2.x, p2.y); dctx.lineTo(p4.x, p4.y); dctx.lineTo(p3.x, p3.y); dctx.closePath(); dctx.fill();
+    }
+  }
   function drawMeasure(d) {
     const p1 = xy(d.points[0]), p2 = xy(d.points[1]); if (!p1 || !p2) return;
     const priceDiff = d.points[1].price - d.points[0].price; const pct = (priceDiff / d.points[0].price) * 100;
@@ -1943,24 +2406,31 @@
     const baseW = d.width || 2;
     dctx.strokeStyle = d.color; dctx.fillStyle = d.color; dctx.lineWidth = selected ? baseW + 1.5 : baseW; dctx.lineCap = 'round';
     switch (d.type) {
-      case 'trendline': case 'ray': case 'arrow': case 'channel': {
+      case 'trendline': case 'ray': case 'arrow': case 'channel': case 'extline': {
         const p1 = xy(d.points[0]), p2raw = d.points[1] ? xy(d.points[1]) : null;
         if (!p1 || !p2raw) break;
-        let p2 = p2raw;
-        if (d.type === 'ray') p2 = extendRay(p1, p2raw);
-        lineRaw(p1.x, p1.y, p2.x, p2.y);
+        let pStart = p1, pEnd = p2raw;
+        if (d.type === 'ray') pEnd = extendRay(p1, p2raw);
+        else if (d.type === 'trendline' || d.type === 'channel' || d.type === 'extline') { const ext = extendedEndpoints(d, p1, p2raw); pStart = ext.a; pEnd = ext.b; }
+        lineRaw(pStart.x, pStart.y, pEnd.x, pEnd.y);
         if (d.type === 'arrow') drawArrowHead(p1, p2raw);
         if (d.type === 'channel' && d.points[2]) {
           const p3 = xy(d.points[2]);
           if (p3) {
             const dy = p3.y - p1.y;
-            lineRaw(p1.x, p1.y + dy, p2raw.x, p2raw.y + dy);
+            lineRaw(pStart.x, pStart.y + dy, pEnd.x, pEnd.y + dy);
             dctx.fillStyle = d.color + '1c';
-            dctx.beginPath(); dctx.moveTo(p1.x, p1.y); dctx.lineTo(p2raw.x, p2raw.y); dctx.lineTo(p2raw.x, p2raw.y + dy); dctx.lineTo(p1.x, p1.y + dy); dctx.closePath(); dctx.fill();
+            dctx.beginPath(); dctx.moveTo(pStart.x, pStart.y); dctx.lineTo(pEnd.x, pEnd.y); dctx.lineTo(pEnd.x, pEnd.y + dy); dctx.lineTo(pStart.x, pStart.y + dy); dctx.closePath(); dctx.fill();
           }
         }
         break;
       }
+      case 'infoline': { const p1 = xy(d.points[0]), p2 = d.points[1] ? xy(d.points[1]) : null; if (!p1 || !p2) break; lineRaw(p1.x, p1.y, p2.x, p2.y); if (d.points[1]) drawInfoLineLabel(d, p1, p2); break; }
+      case 'angle': { const p1 = xy(d.points[0]), p2 = d.points[1] ? xy(d.points[1]) : null; if (!p1 || !p2) break; lineRaw(p1.x, p1.y, p2.x, p2.y); drawAngleTool(d, p1, p2); break; }
+      case 'crossline': { const p = xy(d.points[0]); if (!p) break; dctx.setLineDash([6, 4]); lineRaw(0, p.y, W, p.y); lineRaw(p.x, 0, p.x, H); dctx.setLineDash([]); priceLabel(p.y, d.points[0].price, d.color); break; }
+      case 'regression': drawRegression(d); break;
+      case 'flatchannel': drawFlatChannel(d); break;
+      case 'disjointchannel': drawDisjointChannel(d); break;
       case 'hline': { const y = yOf(d.points[0].price); if (y == null) break; dctx.setLineDash([7, 5]); lineRaw(0, y, W, y); dctx.setLineDash([]); priceLabel(y, d.points[0].price, d.color); break; }
       case 'hray': { const p = xy(d.points[0]); if (!p) break; lineRaw(p.x, p.y, W, p.y); priceLabel(p.y, d.points[0].price, d.color); break; }
       case 'vline': { const x = xOf(d.points[0].time); if (x == null) break; lineRaw(x, 0, x, H); break; }
@@ -1972,14 +2442,32 @@
       case 'text': { const p = xy(d.points[0]); if (!p) break; dctx.font = '600 13px Inter, sans-serif'; dctx.fillStyle = d.color; dctx.textBaseline = 'bottom'; dctx.textAlign = 'left'; dctx.fillText(d.text || '', p.x + 4, p.y - 4); break; }
     }
     if (selected) {
-      (d.points || []).forEach(pt => {
-        const p = xy(pt); if (!p) return;
-        dctx.beginPath(); dctx.arc(p.x, p.y, HANDLE_R + 2, 0, Math.PI * 2);
-        dctx.fillStyle = '#0e131b'; dctx.fill();
+      handleScreenPoints(d).forEach(p => {
+        if (!p) return;
+        // Chấm neo sắc nét, cố định đúng 1 điểm — không quầng mờ, không hiệu ứng lan tỏa,
+        // giống hệt TradingView: tâm trắng nhỏ + viền mảnh theo màu nét vẽ.
+        dctx.save();
         dctx.beginPath(); dctx.arc(p.x, p.y, HANDLE_R, 0, Math.PI * 2);
-        dctx.fillStyle = d.color; dctx.fill();
-        dctx.lineWidth = 1.6; dctx.strokeStyle = '#ffffff'; dctx.stroke();
+        dctx.fillStyle = '#ffffff'; dctx.fill();
+        dctx.lineWidth = 1.6; dctx.strokeStyle = d.color; dctx.stroke();
+        dctx.restore();
       });
+      // Nhãn tên công cụ (vd "Đường xu hướng", "Fibonacci"...) hiện ngay trên đối tượng đang chọn,
+      // giống TradingView — giúp nhận biết ngay đây là bản vẽ loại gì mà không cần đoán qua icon.
+      const label = TOOL_LABELS[d.type];
+      const anchorP = anchorFor(d);
+      if (label && anchorP) {
+        dctx.font = '600 10.5px Inter, sans-serif';
+        const tw = dctx.measureText(label).width;
+        const padX = 6, boxH = 16;
+        const lx = Math.max(2, Math.min(W - tw - padX * 2 - 2, anchorP.x));
+        const ly = Math.max(2, anchorP.y - 34);
+        dctx.fillStyle = d.color;
+        if (dctx.roundRect) { dctx.beginPath(); dctx.roundRect(lx, ly, tw + padX * 2, boxH, 3); dctx.fill(); }
+        else { dctx.fillRect(lx, ly, tw + padX * 2, boxH); }
+        dctx.fillStyle = textColorFor(d.color); dctx.textBaseline = 'middle'; dctx.textAlign = 'left';
+        dctx.fillText(label, lx + padX, ly + boxH / 2 + 0.5);
+      }
     }
     if (d.locked) {
       const anchorPt = (d.points || [])[0]; const p = anchorPt ? xy(anchorPt) : null;
@@ -2038,11 +2526,48 @@
   }
   function hitTestOne(d, x, y, tol) {
     switch (d.type) {
-      case 'trendline': case 'ray': case 'arrow': case 'channel': {
+      case 'trendline': case 'ray': case 'arrow': case 'channel': case 'extline': {
         const p1 = xy(d.points[0]), p2raw = d.points[1] ? xy(d.points[1]) : null; if (!p1 || !p2raw) return false;
-        const p2 = d.type === 'ray' ? extendRay(p1, p2raw) : p2raw;
-        if (distToSeg(x, y, p1.x, p1.y, p2.x, p2.y) <= tol) return true;
-        if (d.type === 'channel' && d.points[2]) { const p3 = xy(d.points[2]); if (p3) { const dy = p3.y - p1.y; if (distToSeg(x, y, p1.x, p1.y + dy, p2raw.x, p2raw.y + dy) <= tol) return true; } }
+        let pStart = p1, pEnd = p2raw;
+        if (d.type === 'ray') pEnd = extendRay(p1, p2raw);
+        else if (d.type === 'trendline' || d.type === 'channel' || d.type === 'extline') { const ext = extendedEndpoints(d, p1, p2raw); pStart = ext.a; pEnd = ext.b; }
+        if (distToSeg(x, y, pStart.x, pStart.y, pEnd.x, pEnd.y) <= tol) return true;
+        if (d.type === 'channel' && d.points[2]) { const p3 = xy(d.points[2]); if (p3) { const dy = p3.y - p1.y; if (distToSeg(x, y, pStart.x, pStart.y + dy, pEnd.x, pEnd.y + dy) <= tol) return true; } }
+        return false;
+      }
+      case 'infoline': case 'angle': {
+        const p1 = xy(d.points[0]), p2 = d.points[1] ? xy(d.points[1]) : null; if (!p1 || !p2) return false;
+        return distToSeg(x, y, p1.x, p1.y, p2.x, p2.y) <= tol;
+      }
+      case 'crossline': { const p = xy(d.points[0]); return !!p && (Math.abs(y - p.y) <= tol || Math.abs(x - p.x) <= tol); }
+      case 'regression': {
+        const r = computeRegression(d); if (!r) return false;
+        const mult = 2;
+        const yAt = i => r.intercept + r.slope * i;
+        const x1 = xOf(r.t1), x2 = xOf(r.t2);
+        if (x1 == null || x2 == null) return false;
+        const yc1 = yOf(yAt(0)), yc2 = yOf(yAt(r.n - 1));
+        const yu1 = yOf(yAt(0) + r.stdDev * mult), yu2 = yOf(yAt(r.n - 1) + r.stdDev * mult);
+        const yd1 = yOf(yAt(0) - r.stdDev * mult), yd2 = yOf(yAt(r.n - 1) - r.stdDev * mult);
+        // Cho phép chọn khi click vào bất kỳ đường nào trong 3 đường (trung tâm/biên trên/biên dưới),
+        // giống TradingView cho phép click vào cả 2 biên kênh để chọn, không chỉ đường giữa.
+        if (yc1 != null && yc2 != null && distToSeg(x, y, x1, yc1, x2, yc2) <= tol) return true;
+        if (yu1 != null && yu2 != null && distToSeg(x, y, x1, yu1, x2, yu2) <= tol) return true;
+        if (yd1 != null && yd2 != null && distToSeg(x, y, x1, yd1, x2, yd2) <= tol) return true;
+        return false;
+      }
+      case 'flatchannel': {
+        const p1 = xy(d.points[0]), p2raw = d.points[1] ? xy(d.points[1]) : null; if (!p1 || !p2raw) return false;
+        const ext = extendedEndpoints(d, p1, p2raw); const pStart = ext.a, pEnd = ext.b;
+        if (distToSeg(x, y, pStart.x, pStart.y, pEnd.x, pEnd.y) <= tol) return true;
+        if (d.points[2]) { const p3 = xy(d.points[2]); if (p3 && distToSeg(x, y, pStart.x, p3.y, pEnd.x, p3.y) <= tol) return true; }
+        return false;
+      }
+      case 'disjointchannel': {
+        const p1 = xy(d.points[0]), p2 = d.points[1] ? xy(d.points[1]) : null;
+        const p3 = d.points[2] ? xy(d.points[2]) : null, p4 = d.points[3] ? xy(d.points[3]) : null;
+        if (p1 && p2 && distToSeg(x, y, p1.x, p1.y, p2.x, p2.y) <= tol) return true;
+        if (p3 && p4 && distToSeg(x, y, p3.x, p3.y, p4.x, p4.y) <= tol) return true;
         return false;
       }
       case 'hline': { const py = yOf(d.points[0].price); return py != null && Math.abs(y - py) <= tol; }
@@ -2068,19 +2593,75 @@
   function addDrawing(obj) { obj.id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); normalizeDrawing(obj); drawings.push(obj); saveDrawings(); return obj; }
   function removeDrawing(id) { drawings = drawings.filter(d => d.id !== id); saveDrawings(); }
 
-  // ===== Chọn công cụ trên thanh toolbar =====
+  // ===== Chọn công cụ trên thanh toolbar (kể cả các mục bên trong flyout ĐƯỜNG / KÊNH) =====
   function updateDrawHint() { const el = document.getElementById('draw-hint'); if (!el) return; const t = HINT_TEXT[currentTool]; if (t) { el.textContent = t; el.style.display = 'block'; } else el.style.display = 'none'; }
-  const toolBtns = document.querySelectorAll('.tool-btn[data-tool]');
-  toolBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      toolBtns.forEach(b => b.classList.remove('active')); btn.classList.add('active');
-      currentTool = btn.getAttribute('data-tool'); pendingPoints = []; previewPoint = null; selectedId = null; lastPolyClick = null;
-      chartPrice.applyOptions({ crosshair: { mode: currentTool === 'cursor' ? LightweightCharts.CrosshairMode.Normal : LightweightCharts.CrosshairMode.Magnet } });
-      document.getElementById('chart-price').style.cursor = currentTool === 'cursor' ? 'default' : 'crosshair';
-      updateDrawHint();
+  // Đánh dấu nút đang active trên toolbar. Nếu công cụ vừa chọn nằm trong 1 flyout (ĐƯỜNG/KÊNH),
+  // nút chính (icon nhỏ luôn hiện trên thanh dọc) sẽ "nhớ" và đổi icon sang đúng công cụ đó —
+  // giống hệt cách TradingView ghi nhớ biến thể vừa dùng làm icon đại diện cho cả nhóm.
+  function updateToolButtonsUI(tool) {
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tool-flyout-item').forEach(b => b.classList.remove('active'));
+    const flyoutItem = document.querySelector('.tool-flyout-item[data-tool="' + tool + '"]');
+    if (flyoutItem) {
+      flyoutItem.classList.add('active');
+      const group = flyoutItem.closest('.tool-group');
+      const mainBtn = group ? group.querySelector('.tool-group-main') : null;
+      if (mainBtn) {
+        mainBtn.classList.add('active');
+        mainBtn.setAttribute('data-tool', tool);
+        const ic = flyoutItem.querySelector('.tfi-ic svg');
+        if (ic) mainBtn.innerHTML = ic.outerHTML;
+        const label = flyoutItem.querySelector('.tfi-label');
+        if (label) mainBtn.title = label.textContent + ' — giữ để xem thêm';
+      }
+    } else {
+      const btn = document.querySelector('.tool-btn[data-tool="' + tool + '"]');
+      if (btn) btn.classList.add('active');
+    }
+  }
+  function selectTool(tool) {
+    currentTool = tool; pendingPoints = []; previewPoint = null; selectedId = null; lastPolyClick = null;
+    chartPrice.applyOptions({ crosshair: { mode: tool === 'cursor' ? LightweightCharts.CrosshairMode.Normal : LightweightCharts.CrosshairMode.Magnet } });
+    document.getElementById('chart-price').style.cursor = tool === 'cursor' ? 'default' : 'crosshair';
+    updateDrawHint();
+    updateToolButtonsUI(tool);
+    closeAllFlyouts();
+  }
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
+    btn.addEventListener('click', () => selectTool(btn.getAttribute('data-tool')));
+  });
+  document.querySelectorAll('.tool-flyout-item[data-tool]').forEach(item => {
+    item.addEventListener('click', (e) => { e.stopPropagation(); selectTool(item.getAttribute('data-tool')); });
+  });
+  function resetToolAfterUse() { selectTool('cursor'); }
+
+  // ===== Flyout ĐƯỜNG / KÊNH: bấm mũi tên nhỏ cạnh icon để xem đủ biến thể, giống menu xổ ra của TradingView =====
+  function closeAllFlyouts() {
+    document.querySelectorAll('.tool-flyout.show').forEach(f => f.classList.remove('show'));
+    document.querySelectorAll('.tool-group.flyout-open').forEach(g => g.classList.remove('flyout-open'));
+  }
+  document.querySelectorAll('.tool-group-caret[data-flyout]').forEach(caret => {
+    caret.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const flyout = document.getElementById(caret.getAttribute('data-flyout'));
+      const group = caret.closest('.tool-group');
+      const alreadyOpen = flyout.classList.contains('show');
+      closeAllFlyouts();
+      if (alreadyOpen) return;
+      // Đưa flyout ra ngoài <body> với position:fixed để không bị thanh công cụ (overflow:hidden) cắt mất,
+      // rồi tính toạ độ dựa trên vị trí thật của nhóm nút trên màn hình — tự lật xuống dưới nếu tràn viền phải/dưới.
+      if (flyout.parentElement !== document.body) document.body.appendChild(flyout);
+      const r = group.getBoundingClientRect();
+      const fw = 236, fh = flyout.querySelectorAll('.tool-flyout-item').length * 36 + 46;
+      let left = r.right + 8, top = r.top - 8;
+      if (left + fw > window.innerWidth - 4) left = Math.max(4, r.left - fw - 8);
+      if (top + fh > window.innerHeight - 4) top = Math.max(4, window.innerHeight - fh - 4);
+      flyout.style.left = left + 'px'; flyout.style.top = top + 'px';
+      flyout.classList.add('show'); group.classList.add('flyout-open');
     });
   });
-  function resetToolAfterUse() { document.querySelector('.tool-btn[data-tool="cursor"]').click(); }
+  document.addEventListener('click', closeAllFlyouts);
+  document.querySelectorAll('.tool-flyout').forEach(f => f.addEventListener('click', e => e.stopPropagation()));
 
   // ===== Công tắc Nam châm / Khoá / Ẩn =====
   const toggleState = { magnet: () => magnetOn, lock: () => lockOn, hide: () => hiddenOn };
@@ -2139,7 +2720,9 @@
     pendingPoints.push(pt);
     const need = TOOL_POINTS[currentTool] || 2;
     if (pendingPoints.length >= need) {
-      addDrawing({ type: currentTool, points: pendingPoints.slice(), color: drawColor() });
+      const created = addDrawing({ type: currentTool, points: pendingPoints.slice(), color: drawColor() });
+      // Đường mở rộng luôn kéo dài vô hạn 2 phía ngay khi vừa vẽ xong, giống "Extended Line" của TradingView
+      if (currentTool === 'extline') { created.extend = 'both'; saveDrawings(); }
       pendingPoints = []; resetToolAfterUse();
     }
   });
@@ -2147,7 +2730,13 @@
   document.addEventListener('keydown', e => {
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-    if (e.key === 'Escape') { pendingPoints = []; previewPoint = null; selectedId = null; lastPolyClick = null; document.querySelector('.tool-btn[data-tool="cursor"]').click(); }
+    if (e.key === 'Escape') { pendingPoints = []; previewPoint = null; selectedId = null; lastPolyClick = null; closeAllFlyouts(); selectTool('cursor'); }
+    // Phím tắt công cụ Đường — giống hệt TradingView (Alt+T/H/J/V/C)
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      const map = { t: 'trendline', h: 'hline', j: 'hray', v: 'vline', c: 'crossline' };
+      const tool = map[e.key.toLowerCase()];
+      if (tool) { e.preventDefault(); selectTool(tool); }
+    }
     if (e.key === 'Enter' && currentTool === 'polyline' && pendingPoints.length >= 2) { addDrawing({ type: 'polyline', points: pendingPoints.slice(), color: drawColor() }); pendingPoints = []; resetToolAfterUse(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
       const d = getSelectedDrawing();
@@ -2206,7 +2795,7 @@
     const rect = chartPriceEl.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
     let idx = -1, bestDist = Infinity;
-    (d.points || []).forEach((pt, i) => { const p = xy(pt); if (!p) return; const dist = Math.hypot(x - p.x, y - p.y); if (dist <= HANDLE_TOL && dist < bestDist) { bestDist = dist; idx = i; } });
+    handleScreenPoints(d).forEach((p, i) => { if (!p) return; const dist = Math.hypot(x - p.x, y - p.y); if (dist <= HANDLE_TOL && dist < bestDist) { bestDist = dist; idx = i; } });
     if (idx === -1 && !hitTestOne(d, x, y, HIT_TOL)) return;
     // Khoá pan/zoom NGAY khi vừa nhận diện được điểm/thân sẽ kéo (không đợi di chuyển đủ 3px) —
     // tránh tình trạng biểu đồ "giật" pan 1 chút trước khi vào chế độ kéo bản vẽ trên cảm ứng.
@@ -2259,6 +2848,8 @@
   attachCrosshairSync(chartVolume, 'volume');
   attachCrosshairSync(chartRSI, 'rsi');
   attachPanEndCrosshairFix('price'); attachPanEndCrosshairFix('volume'); attachPanEndCrosshairFix('rsi');
+  attachPriceAxisWheelZoom(chartPrice, 'price'); attachPriceAxisWheelZoom(chartVolume, 'volume'); attachPriceAxisWheelZoom(chartRSI, 'rsi');
+  attachTimeWheelZoom(chartPrice, 'price'); attachTimeWheelZoom(chartVolume, 'volume'); attachTimeWheelZoom(chartRSI, 'rsi');
 
   // Bộ lọc theo loại cá trên bảng Nhật ký Lệnh Cá Mập ('all' | 'whale' | 'shark' | 'dolphin')
   let whaleFilterTier = localStorage.getItem('ok_whale_filter') || 'all';
@@ -2284,14 +2875,142 @@
   let chartWhaleMarkersEnabled = localStorage.getItem('ok_whale_chart_markers_on') !== '0'; // mặc định BẬT
   let lastAiMarkers = []; // cache tín hiệu AI hiện tại, để gộp lại với icon cá mỗi khi 1 trong 2 nguồn thay đổi
 
-  // Gộp tín hiệu AI (mũi tên LONG/SHORT, B.CLX/S.CLX, VOL+/-, CHẶN) + icon cá (nếu đang bật) rồi
-  // vẽ 1 lần lên candleSeriesMarkers — tránh việc 2 nguồn markers ghi đè lẫn nhau.
+  // =========================================================
+  // NHẢY TỚI CÂY NẾN + LUỒNG SÁNG BAO QUANH NẾN NHẬN DIỆN
+  // Khi người dùng bấm vào 1 dòng sự kiện trong Nhật ký (Tín hiệu AI hoặc Lệnh Cá Mập), biểu đồ tự
+  // cuộn/canh giữa đúng cây nến chứa sự kiện đó, đồng thời hiện 1 vầng sáng (glow halo) phát sáng nhấp
+  // nháy bao quanh trọn cây nến đó trong ~4 giây để người xem dễ nhận biết. Vầng sáng là 1 <div> phủ
+  // (position: absolute) đặt ngay trong khung biểu đồ giá (#chart-price), được định vị lại liên tục theo
+  // toạ độ pixel thật của cây nến (qua timeToCoordinate/priceToCoordinate) để luôn bám đúng vị trí kể cả
+  // khi người dùng đang kéo/zoom biểu đồ trong lúc vầng sáng đang hiển thị.
+  // =========================================================
+  let flashHighlightState = null; // { time, rafId, timeoutId }
+  let candleGlowEl = null;
+
+  function ensureCandleGlowEl() {
+    if (candleGlowEl) return candleGlowEl;
+    const container = document.getElementById('chart-price');
+    if (!container) return null;
+    candleGlowEl = document.createElement('div');
+    candleGlowEl.className = 'candle-glow-halo';
+    container.appendChild(candleGlowEl);
+    return candleGlowEl;
+  }
+
+  // Định vị lại vầng sáng đúng vào toạ độ pixel hiện tại (theo thời gian + biên độ giá cao/thấp) của cây nến
+  function positionCandleGlow(candleTimeSec) {
+    const el = candleGlowEl;
+    if (!el) return false;
+    const c = candlesDataMap.get(candleTimeSec);
+    if (!c) { el.style.display = 'none'; return false; }
+    let x, yHigh, yLow;
+    try {
+      x = chartPrice.timeScale().timeToCoordinate(candleTimeSec);
+      yHigh = candleSeries.priceToCoordinate(c.high);
+      yLow = candleSeries.priceToCoordinate(c.low);
+    } catch (e) { x = null; }
+    if (x == null || yHigh == null || yLow == null) { el.style.display = 'none'; return false; }
+    // Bề rộng THÂN NẾN thực tế (không phải khoảng cách giữa 2 nến) — Lightweight Charts vẽ thân nến
+    // xấp xỉ ~60% bar spacing hiện tại (phần còn lại là khoảng hở giữa các nến), dùng để vầng sáng
+    // ôm SÁT đúng 1 cây nến thay vì loang rộng ra cả các nến bên cạnh.
+    let spacing = 10;
+    try {
+      const isec = intervalSeconds();
+      const xNext = chartPrice.timeScale().timeToCoordinate(candleTimeSec + isec);
+      const xPrev = chartPrice.timeScale().timeToCoordinate(candleTimeSec - isec);
+      if (xNext != null) spacing = Math.abs(xNext - x);
+      else if (xPrev != null) spacing = Math.abs(x - xPrev);
+    } catch (e) {}
+    const candleBodyWidth = Math.max(spacing * 0.6, 5);
+    const padX = 5; // viền sáng mỏng ôm sát 2 bên thân nến
+    const padY = 6; // viền sáng mỏng ôm sát trên/dưới bấc nến
+    const width = candleBodyWidth + padX * 2;
+    const height = Math.max(Math.abs(yLow - yHigh) + padY * 2, candleBodyWidth + padY * 2);
+    el.style.left = x + 'px';
+    el.style.top = ((yHigh + yLow) / 2) + 'px';
+    el.style.width = width + 'px';
+    el.style.height = height + 'px';
+    el.style.display = 'block';
+    return true;
+  }
+
+  function stopFlashHighlight() {
+    if (!flashHighlightState) return;
+    if (flashHighlightState.rafId) cancelAnimationFrame(flashHighlightState.rafId);
+    clearTimeout(flashHighlightState.timeoutId);
+    flashHighlightState = null;
+    if (candleGlowEl) { candleGlowEl.classList.remove('show'); candleGlowEl.style.display = 'none'; }
+  }
+
+  function flashCandleHighlight(candleTimeSec) {
+    stopFlashHighlight();
+    const el = ensureCandleGlowEl();
+    if (!el) return;
+    flashHighlightState = { time: candleTimeSec, rafId: null, timeoutId: null };
+    el.classList.add('show');
+    const TOTAL_MS = 4000; // tổng thời gian phát sáng theo yêu cầu (~4 giây)
+    // Vòng lặp requestAnimationFrame giữ vầng sáng luôn bám đúng cây nến trong lúc người dùng kéo/zoom biểu đồ
+    const tick = () => {
+      if (!flashHighlightState) return;
+      positionCandleGlow(flashHighlightState.time);
+      flashHighlightState.rafId = requestAnimationFrame(tick);
+    };
+    tick();
+    flashHighlightState.timeoutId = setTimeout(stopFlashHighlight, TOTAL_MS);
+  }
+
+  // Canh giữa biểu đồ vào đúng vị trí (logical index) của cây nến, giữ nguyên độ zoom (số nến) đang xem hiện tại
+  function centerChartOnCandleIndex(idx) {
+    let curRange = null;
+    try { curRange = priceTimeScale.getVisibleLogicalRange(); } catch (e) {}
+    const width = (curRange && isFinite(curRange.to - curRange.from) && (curRange.to - curRange.from) > 5) ? (curRange.to - curRange.from) : 60;
+    const half = width / 2;
+    try { priceTimeScale.setVisibleLogicalRange({ from: idx - half, to: idx + half }); } catch (e) {}
+  }
+
+  // Nhảy tới cây nến chứa mốc thời gian `candleTimeSec` (giây, đúng lưới thời gian của khung hiện tại).
+  // Nếu cây nến đó nằm ngoài phạm vi lịch sử đã tải (quá cũ), tự động tải thêm lịch sử cũ hơn trước khi nhảy tới.
+  function jumpToCandleTime(candleTimeSec) {
+    if (candleTimeSec == null || !candlesData.length) return;
+    // Tự cuộn TRANG (window) lên đúng khu vực biểu đồ trước, để người dùng khỏi phải tự lướt tay lên xem
+    // (hữu ích nhất trên di động, nơi bảng Nhật ký thường nằm bên dưới biểu đồ). Tính thẳng toạ độ đích
+    // rồi window.scrollTo thay vì dùng scrollIntoView, để tránh trường hợp trình duyệt chọn nhầm 1 khung
+    // cuộn lồng bên trong (VD danh sách nhật ký có overflow-y riêng) thay vì cuộn cả trang.
+    try {
+      const wrapper = document.getElementById('chart-wrapper');
+      if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        const targetY = window.scrollY + rect.top - Math.max((window.innerHeight - rect.height) / 2, 12);
+        window.scrollTo({ top: Math.max(targetY, 0), behavior: 'smooth' });
+      }
+    } catch (e) {}
+    let triesLeft = 40; // chặn spam gọi API nếu vì lý do gì đó không bao giờ tìm thấy
+    function attempt() {
+      const idx = candlesData.findIndex(c => c.time === candleTimeSec);
+      if (idx !== -1) { centerChartOnCandleIndex(idx); flashCandleHighlight(candleTimeSec); return; }
+      const outOfRange = candleTimeSec >= candlesData[0].time; // không phải do thiếu lịch sử cũ -> khỏi tải thêm
+      if (outOfRange || triesLeft-- <= 0 || noMoreHistoryKey === historyKey()) {
+        // Không tìm đúng nến (VD dữ liệu đã bị dọn) -> vẫn nhảy tới nến gần nhất để người dùng có điểm tham chiếu
+        let nearest = 0;
+        for (let i = 1; i < candlesData.length; i++) { if (Math.abs(candlesData[i].time - candleTimeSec) < Math.abs(candlesData[nearest].time - candleTimeSec)) nearest = i; }
+        centerChartOnCandleIndex(nearest); flashCandleHighlight(candlesData[nearest].time);
+        return;
+      }
+      loadOlderHistory().then(() => attempt());
+    }
+    attempt();
+  }
+
+  // Gộp tín hiệu AI (mũi tên LONG/SHORT, B.CLX/S.CLX, VOL+/-, CHẶN) + icon cá (nếu đang bật) rồi vẽ 1 lần
+  // lên candleSeriesMarkers — tránh việc 2 nguồn markers ghi đè lẫn nhau. (Vầng sáng chớp nháy nhận diện
+  // cây nến được vẽ riêng bằng DOM overlay ở trên, không đi qua candleSeriesMarkers.)
   function applyAllChartMarkers() {
     const whaleMarkers = chartWhaleMarkersEnabled ? buildWhaleCandleMarkers() : [];
     const merged = lastAiMarkers.concat(whaleMarkers);
     merged.sort((a, b) => a.time - b.time);
     candleSeriesMarkers.setMarkers(merged);
   }
+
 
   // Gom các lệnh cá (đã lưu mãi mãi trong whaleLogs) của ĐÚNG coin đang xem vào đúng cây nến của
   // khung thời gian hiện tại (currentInterval), rồi tạo 1 marker nhỏ mỗi (cây nến, loại cá, chiều mua/bán).
@@ -2400,14 +3119,51 @@
     const recent = coinLogs.slice().reverse();
     recent.forEach(log => {
       const tierDef = fishTierByKey(log.tier || 'shark');
-      const row = document.createElement('div'); row.className = 'signal-row';
+      const row = document.createElement('div'); row.className = 'signal-row jumpable'; row.title = 'Nhấp để xem trên biểu đồ';
       const tone = log.isBuy ? 'up' : 'down'; const label = `${tierDef.name.toUpperCase()} ${log.isBuy ? 'MUA' : 'BÁN'}`;
       row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge-wrap"><span class="signal-eyebrow" style="color:${tierDef.color}">${tierDef.name.toUpperCase()}</span><div class="signal-badge ${tone}">${icon(tierDef.icon)}<span class="lbl">${label}</span></div></div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtFullDateTime(log.time)}</span><span class="signal-price" style="color:var(--${tone}); font-weight:700">${fmtVol(log.usd)} USDT</span></div><div class="signal-desc">Coin: <b>${log.symbol}</b> ở mức giá <b>${fmt(log.price)}</b></div></div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${log.time}, true)" title="Xóa">${icon('x')}</button></div>`;
+      // Bấm vào dòng nhật ký (trừ nút xóa) -> tự dịch chuyển biểu đồ tới đúng cây nến chứa lệnh cá này + chớp nháy nhận biết
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-delete-item')) return;
+        const isec = intervalSeconds();
+        const candleTime = Math.floor(Math.floor(log.time / 1000) / isec) * isec;
+        jumpToCandleTime(candleTime);
+      });
       list.appendChild(row);
     });
   }
   initWhaleFilterBar();
   renderWhaleLogs();
+
+  // Toast CẢNH BÁO SỚM riêng biệt với whale-toast thường: báo trước khi tín hiệu MOMENTUM chính thức
+  // (dựa trên nến) kịp xác nhận, dựa trên tốc độ dòng lệnh khớp thật đang tăng vọt đột ngột.
+  // Hiển thị lâu hơn toast thường (15s thay vì 6-7s) + dừng đếm giờ khi rê chuột vào + có nút đóng tay,
+  // vì đây là cảnh báo cần thời gian đọc và cân nhắc, không phải thông báo lướt qua.
+  function showBurstWarning(isBuy, ratio, usdAmount, price) {
+    const container = document.getElementById('toast-container'); const toast = document.createElement('div');
+    toast.className = `whale-toast burst ${isBuy ? 'buy' : 'sell'}`;
+    const dirWord = isBuy ? 'MUA' : 'BÁN';
+    const dirVerb = isBuy ? 'gom mua' : 'xả bán';
+    toast.innerHTML = `
+      <div class="whale-icon">${icon('barChart')}${isBuy ? icon('trendUp') : icon('trendDown')}</div>
+      <div class="whale-content">
+        <div class="whale-title">⚡ CẢNH BÁO SỚM — LỆNH ${dirWord} DỒN DẬP</div>
+        <div class="whale-desc">Đang có lực ${dirVerb} mạnh bất thường, nhanh gấp ~${Math.round(ratio)} lần bình thường</div>
+        <div class="whale-time">Giá hiện tại: ${fmt(price)} · Đây là cảnh báo SỚM, chưa phải tín hiệu MOMENTUM chính thức — chỉ để bạn cân nhắc theo dõi kỹ hơn</div>
+      </div>
+      <button class="whale-close" type="button" aria-label="Đóng">${icon('x')}</button>`;
+    container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show'));
+
+    const DISPLAY_MS = 15000;
+    let dismissTimer = null;
+    const closeToast = () => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); };
+    const startTimer = () => { dismissTimer = setTimeout(closeToast, DISPLAY_MS); };
+    const stopTimer = () => { if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; } };
+    startTimer();
+    toast.addEventListener('mouseenter', stopTimer);
+    toast.addEventListener('mouseleave', startTimer);
+    toast.querySelector('.whale-close').addEventListener('click', () => { stopTimer(); closeToast(); });
+  }
 
   function showWhaleAlert(isBuy, usdAmount, price, symbol, tierKey) {
     const tierDef = fishTierByKey(tierKey);
@@ -2495,99 +3251,84 @@
     }
     return atr;
   }
+  // ADX (Average Directional Index) — đo ĐỘ MẠNH của xu hướng (không quan tâm chiều tăng/giảm).
+  // ADX < 20-25: thị trường đang sideway/giằng co -> tín hiệu cắt EMA trong vùng này thường là NHIỄU.
+  // ADX > 22-25: xu hướng đủ mạnh và rõ ràng -> tín hiệu thuận xu hướng đáng tin cậy hơn nhiều.
+  // Dùng để LỌC bớt tín hiệu Long/Short giả trong các đoạn giá đi ngang có wick dài (đúng kiểu gây lỗ hay gặp).
+  function computeADX(candles, period = 14) {
+    const n = candles.length;
+    const plusDM = new Array(n).fill(0), minusDM = new Array(n).fill(0), tr = new Array(n).fill(0);
+    for (let i = 1; i < n; i++) {
+      const upMove = candles[i].high - candles[i - 1].high;
+      const downMove = candles[i - 1].low - candles[i].low;
+      plusDM[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
+      minusDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
+      const hl = candles[i].high - candles[i].low;
+      const hc = Math.abs(candles[i].high - candles[i - 1].close);
+      const lc = Math.abs(candles[i].low - candles[i - 1].close);
+      tr[i] = Math.max(hl, hc, lc);
+    }
+    // Làm mượt kiểu Wilder (giống ATR): tổng tích lũy period đầu, sau đó smoothing dần
+    function wilderSmooth(arr) {
+      const out = new Array(n).fill(0);
+      let sum = 0;
+      for (let i = 1; i <= period && i < n; i++) sum += arr[i];
+      out[period] = sum;
+      for (let i = period + 1; i < n; i++) out[i] = out[i - 1] - (out[i - 1] / period) + arr[i];
+      return out;
+    }
+    const trSmooth = wilderSmooth(tr), plusDMSmooth = wilderSmooth(plusDM), minusDMSmooth = wilderSmooth(minusDM);
+    const plusDI = new Array(n).fill(0), minusDI = new Array(n).fill(0), dx = new Array(n).fill(0), adx = new Array(n).fill(0);
+    for (let i = period; i < n; i++) {
+      plusDI[i] = trSmooth[i] > 0 ? (100 * plusDMSmooth[i] / trSmooth[i]) : 0;
+      minusDI[i] = trSmooth[i] > 0 ? (100 * minusDMSmooth[i] / trSmooth[i]) : 0;
+      const diSum = plusDI[i] + minusDI[i];
+      dx[i] = diSum > 0 ? (100 * Math.abs(plusDI[i] - minusDI[i]) / diSum) : 0;
+    }
+    // ADX = trung bình trượt Wilder của DX qua period thứ 2
+    let sumDx = 0; const start = period * 2;
+    for (let i = period; i < Math.min(start, n); i++) sumDx += dx[i];
+    if (start < n) adx[start] = sumDx / period;
+    for (let i = start + 1; i < n; i++) adx[i] = (adx[i - 1] * (period - 1) + dx[i]) / period;
+    return { adx, plusDI, minusDI };
+  }
   function emaSlopeSignal(emaArr, lookback){ const n = emaArr.length; if (n <= lookback) return 0; const diff = (emaArr[n - 1] - emaArr[n - 1 - lookback]) / emaArr[n - 1 - lookback]; if (diff > 0.001) return 1; if (diff < -0.001) return -1; return 0; }
-
-  // =========================================================
-  // PHÂN KỲ RSI/GIÁ — điều kiện xác nhận bắt buộc cho tín hiệu ĐẢO CHIỀU (nâng cấp từ climax cảnh báo đơn thuần
-  // thành tín hiệu MUA/BÁN đầy đủ). Quét NGƯỢC trong khoảng [i-lookback, i-minGap] để tìm đỉnh/đáy giá gần nhất
-  // trước nến hiện tại, rồi so RSI tại đó với RSI hiện tại:
-  //   - Phân kỳ GIẢM (bearish): giá tạo đỉnh MỚI CAO HƠN nhưng RSI lại THẤP HƠN đỉnh RSI trước đó -> lực mua đuối,
-  //     xác nhận cho Buying Climax (cảnh báo đỉnh -> tín hiệu BÁN đảo chiều).
-  //   - Phân kỳ TĂNG (bullish): giá tạo đáy MỚI THẤP HƠN nhưng RSI lại CAO HƠN đáy RSI trước đó -> lực bán đuối,
-  //     xác nhận cho Selling Climax (cảnh báo đáy -> tín hiệu MUA đảo chiều).
-  // =========================================================
-  function detectDivergence(candles, rsiArr, i, lookback = 25, minGap = 5) {
-    const start = Math.max(0, i - lookback);
-    const end = i - minGap;
-    if (end <= start) return { bearish: false, bullish: false };
-    let priorHighIdx = -1, priorHigh = -Infinity;
-    let priorLowIdx = -1, priorLow = Infinity;
-    for (let j = start; j <= end; j++) {
-      if (candles[j].high > priorHigh) { priorHigh = candles[j].high; priorHighIdx = j; }
-      if (candles[j].low < priorLow) { priorLow = candles[j].low; priorLowIdx = j; }
-    }
-    const bearish = priorHighIdx >= 0 && candles[i].high >= priorHigh && rsiArr[i] < rsiArr[priorHighIdx];
-    const bullish = priorLowIdx >= 0 && candles[i].low <= priorLow && rsiArr[i] > rsiArr[priorLowIdx];
-    return { bearish, bullish };
-  }
-
-  // R:R cố định cho tín hiệu ĐẢO CHIỀU (climax đã xác nhận phân kỳ) — thấp hơn tín hiệu thuận xu hướng vì đây là
-  // lệnh NGƯỢC xu hướng chính, rủi ro thất bại cao hơn nên chốt lời gần hơn tương ứng.
-  const REVERSAL_RR = 1.5;
-
-  // =========================================================
-  // BACKTEST NỘI BỘ — mô phỏng tiến trên chính dữ liệu lịch sử đã tải để tính tỷ lệ thắng & R trung bình
-  // cho từng loại tín hiệu (hiển thị ở bảng thống kê). Với mỗi tín hiệu có entry/target/SL, quét TIẾN tối đa
-  // BACKTEST_MAX_BARS nến kế tiếp xem Target hay Stop Loss bị chạm trước. Nếu cả 2 cùng nằm trong 1 nến (không
-  // rõ mốc nào chạm trước) hoặc lệnh chưa đóng trong phạm vi quét, xử lý theo hướng THẬN TRỌNG (tính là thua
-  // hoặc loại khỏi thống kê) để không thổi phồng tỷ lệ thắng.
-  // =========================================================
-  const BACKTEST_MAX_BARS = 150;
-  function simulateSignalOutcome(idx, entry, target, sl, isLong) {
-    if (!candlesData.length) return null;
-    const lastIdx = Math.min(candlesData.length - 1, idx + BACKTEST_MAX_BARS);
-    for (let k = idx + 1; k <= lastIdx; k++) {
-      const kc = candlesData[k];
-      const hitSL = isLong ? kc.low <= sl : kc.high >= sl;
-      const hitTP = isLong ? kc.high >= target : kc.low <= target;
-      if (hitSL) return -1; // Giả định bất lợi khi cả 2 cùng chạm trong 1 nến -> tính là thua cho an toàn
-      if (hitTP) return isLong ? (target - entry) / (entry - sl) : (entry - target) / (sl - entry);
-    }
-    return null; // chưa đóng lệnh trong phạm vi quét -> loại khỏi thống kê, không tính thắng/thua
-  }
-  const STAT_SIGNAL_TYPES = [
-    { type: 'trend_long', label: 'MUA - LONG', tone: 'up' },
-    { type: 'trend_short', label: 'BÁN - SHORT', tone: 'down' },
-    { type: 'reversal_long', label: 'MUA - ĐẢO CHIỀU', tone: 'up' },
-    { type: 'reversal_short', label: 'BÁN - ĐẢO CHIỀU', tone: 'down' },
-  ];
-  function renderSignalStatsTable(statsByType) {
-    const el = document.getElementById('ai-stats-table');
-    if (!el) return;
-    const MIN_SAMPLE = 20; // dưới ngưỡng này thì tỷ lệ thắng/R chưa đủ ý nghĩa thống kê, cần cảnh báo rõ
-    const rows = STAT_SIGNAL_TYPES.map(t => {
-      const st = statsByType[t.type] || { wins: 0, losses: 0, sumR: 0 };
-      const closed = st.wins + st.losses;
-      const winRate = closed ? (st.wins / closed * 100) : null;
-      const avgR = closed ? (st.sumR / closed) : null;
-      const resultHtml = closed
-        ? `${closed} lệnh <span class="stat-w">${st.wins} thắng</span> / <span class="stat-l">${st.losses} thua</span>`
-        : `Chưa có lệnh nào đóng`;
-      const rHtml = avgR === null ? '—' : `${avgR >= 0 ? '▲ +' : '▼ '}${avgR.toFixed(2)}R ${avgR >= 0 ? '(lãi)' : '(lỗ)'}`;
-      const smallSampleTag = (closed > 0 && closed < MIN_SAMPLE) ? `<span class="stat-small-sample" title="Mẫu dưới ${MIN_SAMPLE} lệnh, số liệu chưa đủ tin cậy để kết luận">mẫu nhỏ</span>` : '';
-      return `<div class="stat-row">
-        <div class="stat-row-top">
-          <span class="stat-row-label ${t.tone}">${t.tone === 'up' ? '▲' : '▼'} ${t.label}</span>
-          ${smallSampleTag}
-        </div>
-        <div class="stat-row-bottom">
-          <span class="stat-row-result">${resultHtml}</span>
-          <span class="stat-row-wr">${winRate === null ? 'Tỷ lệ thắng: —' : 'Thắng ' + winRate.toFixed(0) + '%'}</span>
-          <span class="stat-row-r ${avgR === null ? '' : (avgR >= 0 ? 'up' : 'down')}">${rHtml}</span>
-        </div>
-      </div>`;
-    }).join('');
-    el.innerHTML = `<div class="stat-table-title-row"><span class="stat-table-title">Thống kê backtest theo tín hiệu</span><button type="button" class="stat-note-toggle" onclick="toggleStatNote(this)">${icon('pin','ico-inline')}R là gì?</button></div>${rows}<div class="stat-note" id="ai-stat-note"><span>${icon('pin', 'ico-inline')}</span><span><b>R là gì?</b> R = bội số rủi ro (khoảng cách entry → SL đặt ban đầu). +1R = lãi đúng bằng mức rủi ro đã chấp nhận, -1R = lỗ đúng bằng SL bị chạm. Quét tối đa ${BACKTEST_MAX_BARS} nến sau mỗi tín hiệu trên dữ liệu lịch sử đã tải; lệnh chưa chạm Target/SL trong phạm vi này không tính vào thống kê. Mẫu dưới ${MIN_SAMPLE} lệnh chỉ mang tính tham khảo, hiệu suất quá khứ không đảm bảo cho tương lai.</span></div>`;
-  }
-  function toggleStatNote(btn) {
-    const note = document.getElementById('ai-stat-note');
-    if (!note) return;
-    const willShow = !note.classList.contains('show');
-    note.classList.toggle('show', willShow);
-    if (btn) btn.classList.toggle('active', willShow);
-  }
   function findSwings(candles, left, right){ const highs = [], lows = []; for (let i = left; i < candles.length - right; i++){ let isHigh = true, isLow = true; for (let j = i - left; j <= i + right; j++){ if (j === i) continue; if (candles[j].high >= candles[i].high) isHigh = false; if (candles[j].low <= candles[i].low) isLow = false; } if (isHigh) highs.push(candles[i].high); if (isLow) lows.push(candles[i].low); } return { highs, lows }; }
   function structureSignal(candles, windowSize, left, right){ const slice = candles.slice(Math.max(0, candles.length - windowSize)); if (slice.length < left + right + 4) return 0; const { highs, lows } = findSwings(slice, left, right); if (highs.length < 2 || lows.length < 2) return 0; const hh = highs[highs.length - 1] > highs[highs.length - 2]; const hl = lows[lows.length - 1] > lows[lows.length - 2]; const lh = highs[highs.length - 1] < highs[highs.length - 2]; const ll = lows[lows.length - 1] < lows[lows.length - 2]; if (hh && hl) return 1; if (lh && ll) return -1; return 0; }
+
+  // ===== PHÂN KỲ GIÁ/RSI (divergence) — kỹ thuật kinh điển để bắt đáy/đỉnh SỚM hơn, thay vì chờ toàn bộ
+  // EMA xếp hàng (vốn luôn xác nhận trễ). Cần chỉ số i TUYỆT ĐỐI (không phải slice) để so RSI đúng điểm. =====
+  // Tìm 2 điểm xoay chiều (đáy hoặc đỉnh) gần nhất tính đến endIdx, trả về chỉ số tuyệt đối của chúng.
+  function findLastTwoSwings(candles, endIdx, windowSize, left, right, wantHigh) {
+    const start = Math.max(left, endIdx - windowSize);
+    const found = [];
+    for (let i = start; i <= endIdx - right; i++) {
+      let isPivot = true;
+      for (let j = Math.max(0, i - left); j <= Math.min(endIdx, i + right); j++) {
+        if (j === i) continue;
+        if (wantHigh ? candles[j].high >= candles[i].high : candles[j].low <= candles[i].low) { isPivot = false; break; }
+      }
+      if (isPivot) found.push(i);
+    }
+    if (found.length < 2) return null;
+    return [found[found.length - 2], found[found.length - 1]];
+  }
+  // Phân kỳ TĂNG (bullish): giá tạo đáy sau THẤP hơn đáy trước, nhưng RSI tại đáy sau lại CAO hơn RSI đáy
+  // trước -> lực bán đang suy yếu dần dù giá vẫn giảm => dấu hiệu SỚM của đáy thật (không phải bẫy giảm tiếp).
+  function detectBullishDivergence(candles, rsi, endIdx, windowSize = 40, left = 3, right = 3) {
+    const pair = findLastTwoSwings(candles, endIdx, windowSize, left, right, false);
+    if (!pair) return false;
+    const [i1, i2] = pair;
+    return candles[i2].low < candles[i1].low && rsi[i2] > rsi[i1] + 2;
+  }
+  // Phân kỳ GIẢM (bearish): giá tạo đỉnh sau CAO hơn đỉnh trước, nhưng RSI tại đỉnh sau lại THẤP hơn RSI
+  // đỉnh trước -> lực mua đang suy yếu dần dù giá vẫn tăng => dấu hiệu SỚM của đỉnh thật.
+  function detectBearishDivergence(candles, rsi, endIdx, windowSize = 40, left = 3, right = 3) {
+    const pair = findLastTwoSwings(candles, endIdx, windowSize, left, right, true);
+    if (!pair) return false;
+    const [i1, i2] = pair;
+    return candles[i2].high > candles[i1].high && rsi[i2] < rsi[i1] - 2;
+  }
   function computeHorizonTrend(candles, fastP, slowP, slopeLookback, structWindow, fracL, fracR){ if (candles.length < slowP + 5) return { trend: 0, emaSig: 0, structSig: 0, insufficient: true }; const closes = candles.map(c => c.close); const emaFast = computeEMA(closes, fastP); const emaSlow = computeEMA(closes, slowP); const lastClose = closes[closes.length - 1]; const lastFast = emaFast[emaFast.length - 1]; const lastSlow = emaSlow[emaSlow.length - 1]; const slope = emaSlopeSignal(emaFast, slopeLookback); let emaSig = 0; if (lastFast > lastSlow && lastClose > lastFast && slope >= 0) emaSig = 1; else if (lastFast < lastSlow && lastClose < lastFast && slope <= 0) emaSig = -1; const structSig = structureSignal(candles, structWindow, fracL, fracR); let trend = 0; if (emaSig === 1 && structSig === 1) trend = 1; else if (emaSig === -1 && structSig === -1) trend = -1; else if (emaSig !== 0 && structSig === 0) trend = emaSig * 0.5; else trend = 0; return { trend, emaSig, structSig, insufficient: false }; }
   function renderTrendCard(elId, result, horizonName){ const card = document.getElementById(elId); card.className = "trend-card"; if (result.insufficient){ card.classList.add('side'); card.querySelector('.trend-arrow').innerText = '—'; card.querySelector('.trend-label').innerText = 'Chưa đủ dữ liệu'; card.querySelector('.trend-desc').innerHTML = 'Cần thêm dữ liệu lịch sử.'; return; } const agree = result.emaSig !== 0 && result.emaSig === result.structSig; let cls, arrowIcon, label, reason; if (result.trend === 1){ cls = 'up'; arrowIcon = 'trendUp'; label = 'TĂNG'; reason = agree ? `Đồng thuận cấu trúc & EMA.` : `Chỉ EMA tăng.`; } else if (result.trend === -1){ cls = 'down'; arrowIcon = 'trendDown'; label = 'GIẢM'; reason = agree ? `Đồng thuận cấu trúc & EMA.` : `Chỉ EMA giảm.`; } else { cls = 'side'; arrowIcon = 'trendFlat'; label = 'ĐI NGANG'; reason = 'Tín hiệu giằng co, chưa rõ ràng.'; } card.classList.add(cls); card.querySelector('.trend-arrow').innerHTML = icon(arrowIcon); card.querySelector('.trend-label').innerText = label; card.querySelector('.trend-desc').innerHTML = reason + (agree ? '<span class="trend-confirm agree">Đồng thuận</span>' : ''); }
   function runTrendAnalysis(){ if (candlesData.length < 30) return; renderTrendCard('trend-short', computeHorizonTrend(candlesData, 9, 21, 5, 40, 2, 2), 'Ngắn hạn'); renderTrendCard('trend-medium', computeHorizonTrend(candlesData, 21, 50, 10, 120, 3, 3), 'Trung hạn'); renderTrendCard('trend-long', computeHorizonTrend(candlesData, 50, 200, 20, candlesData.length, 5, 5), 'Dài hạn'); }
@@ -2603,15 +3344,15 @@
       case 'trend_short':
         return `Chiến lược thuận xu hướng SHORT đa khung THẬT: hệ thống quét toàn bộ các khung LỚN HƠN khung đang xem (trong dải 5m-1M), chỉ cần MỘT khung lớn xác nhận xu hướng giảm là đủ điều kiện. Điểm entry chính xác luôn bắt tại khung NHỎ NHẤT (${currentInterval}) đang xem khi giá gãy xuống EMA21. Target ưu tiên là dải dưới Bollinger Bands của khung lớn GẦN NHẤT đang xác nhận — điểm chốt lời an toàn, không quá xa entry; nếu chưa khung lớn nào hợp lệ thì dùng R:R theo ATR làm dự phòng. Khuyến nghị: rủi ro tối đa 1-2% vốn/lệnh, tuân thủ SL nghiêm ngặt, có thể chốt lời 1 phần tại Target rồi dời SL về hòa vốn để bảo toàn lợi nhuận.`;
       case 'reversal_short':
-        return `Buying Climax ĐÃ XÁC NHẬN bằng phân kỳ giảm RSI/giá: khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng mạnh, giá tạo đỉnh mới cao hơn nhưng RSI KHÔNG xác nhận (đỉnh RSI thấp hơn đỉnh trước) — dấu hiệu rõ ràng bên mua đang đuối sức, dòng tiền lớn có thể đang phân phối. Stop Loss đặt trên đỉnh nến climax, R:R cố định 1:${REVERSAL_RR}. Đây là lệnh NGƯỢC XU HƯỚNG (đảo chiều) nên xác suất thất bại cao hơn tín hiệu thuận xu hướng — khuyến nghị khối lượng vào lệnh nhỏ hơn bình thường và tuân thủ SL nghiêm ngặt.`;
+        return `Chiến lược ĐẢO CHIỀU (Wyckoff Buying Climax): khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng mạnh, RSI quá mua — bên mua đuối sức, dòng tiền lớn có thể đang phân phối/chốt lời${s.divergenceConfirmed ? '. XÁC NHẬN THÊM bởi phân kỳ giảm (giá tạo đỉnh cao hơn nhưng RSI tạo đỉnh thấp hơn) — độ tin cậy cao hơn' : ' (chưa có phân kỳ RSI xác nhận thêm — độ tin cậy trung bình, nên vào lệnh nhỏ hơn bình thường)'}. Đây là lệnh NGƯỢC xu hướng đang diễn ra nên rủi ro cao hơn tín hiệu thuận xu hướng — SL đặt sát trên đỉnh nến climax, target chỉ hồi về vùng trung bình (EMA21/50), không kỳ vọng đảo chiều toàn bộ xu hướng lớn.`;
       case 'reversal_long':
-        return `Selling Climax ĐÃ XÁC NHẬN bằng phân kỳ tăng RSI/giá: khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm mạnh, giá tạo đáy mới thấp hơn nhưng RSI KHÔNG xác nhận (đáy RSI cao hơn đáy trước) — dấu hiệu rõ ràng bên bán đang đuối sức, lực bắt đáy đang hình thành. Stop Loss đặt dưới đáy nến climax, R:R cố định 1:${REVERSAL_RR}. Đây là lệnh NGƯỢC XU HƯỚNG (đảo chiều) nên xác suất thất bại cao hơn tín hiệu thuận xu hướng — khuyến nghị khối lượng vào lệnh nhỏ hơn bình thường và tuân thủ SL nghiêm ngặt.`;
+        return `Chiến lược ĐẢO CHIỀU (Wyckoff Selling Climax): khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm mạnh, RSI quá bán — bên bán đuối sức, có lực bắt đáy${s.divergenceConfirmed ? '. XÁC NHẬN THÊM bởi phân kỳ tăng (giá tạo đáy thấp hơn nhưng RSI tạo đáy cao hơn) — độ tin cậy cao hơn' : ' (chưa có phân kỳ RSI xác nhận thêm — độ tin cậy trung bình, nên vào lệnh nhỏ hơn bình thường)'}. Đây là lệnh NGƯỢC xu hướng đang diễn ra nên rủi ro cao hơn tín hiệu thuận xu hướng — SL đặt sát dưới đáy nến climax, target chỉ hồi về vùng trung bình (EMA21/50), không kỳ vọng đảo chiều toàn bộ xu hướng lớn.`;
       case 'climax_buy':
-        return `Buying Climax CHƯA xác nhận: khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng, RSI quá mua nhưng KHÔNG phát hiện phân kỳ RSI/giá đi kèm — độ tin cậy thấp hơn nên hệ thống CHƯA đưa ra lệnh Bán/Đảo chiều cụ thể. Chỉ nên thận trọng khi mở Long mới, cân nhắc chốt lời một phần vị thế Long đang nắm giữ, tránh mua đuổi (FOMO).`;
+        return `Buying Climax: khối lượng đột biến kèm bấc nến trên dài sau một nhịp tăng — dấu hiệu bên mua đuối sức, dòng tiền lớn có thể đang chốt lời/phân phối. Nên thận trọng khi mở Long mới, cân nhắc chốt lời một phần vị thế Long đang nắm giữ, tránh mua đuổi (FOMO).`;
       case 'climax_sell':
-        return `Selling Climax CHƯA xác nhận: khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm, RSI quá bán nhưng KHÔNG phát hiện phân kỳ RSI/giá đi kèm — độ tin cậy thấp hơn nên hệ thống CHƯA đưa ra lệnh Mua/Đảo chiều cụ thể. Chỉ nên thận trọng khi mở Short mới, cân nhắc chốt lời một phần vị thế Short đang nắm giữ, tránh bán đuổi theo cảm xúc.`;
+        return `Selling Climax: khối lượng đột biến kèm bấc nến dưới dài sau một nhịp giảm — dấu hiệu bên bán đuối sức, có thể xuất hiện lực bắt đáy. Nên thận trọng khi mở Short mới, cân nhắc chốt lời một phần vị thế Short đang nắm giữ, tránh bán đuổi theo cảm xúc.`;
       case 'vol_spike':
-        return `Khối lượng vượt trội xác nhận lực ${s.tone === 'up' ? 'mua' : 'bán'} đang chiếm ưu thế tại vùng giá này — có thể là khởi đầu một nhịp đẩy giá ngắn hạn, nhưng chưa đủ điều kiện xác nhận xu hướng để vào lệnh mới theo hệ thống.`;
+        return `Chiến lược MOMENTUM ngắn hạn: khối lượng vượt trội xác nhận lực ${s.tone === 'up' ? 'mua' : 'bán'} đang chiếm ưu thế tại vùng giá này. Khác với tín hiệu THUẬN XU HƯỚNG, tín hiệu này CHƯA đòi hỏi các khung lớn hơn đồng thuận nên độ tin cậy thấp hơn — R:R đặt thấp hơn (1:1.3), SL sát hơn để kiểm soát rủi ro. Phù hợp cho lệnh lướt sóng ngắn, không nên vào khối lượng lớn như tín hiệu thuận xu hướng đầy đủ.`;
       case 'fng_block':
         return `AI đã hủy tín hiệu vì tâm lý đám đông (tỉ lệ Long/Short Binance) đang lệch cực đoan — vào lệnh ngược dòng đám đông lúc này có xác suất thua cao hơn bình thường.`;
       default:
@@ -2625,9 +3366,8 @@
     if (liveStatusEl) liveStatusEl.innerHTML = isLiveSignalPreview ? '<span class="live-dot" style="display:inline-block; margin-right:4px; vertical-align:middle;"></span>LIVE · nến chưa đóng, tín hiệu có thể đổi' : icon('checkCircle', 'ico-inline') + ' Đã xác nhận nến đóng';
     runTrendAnalysis(); signalsMap.clear();
     const aiList = document.getElementById('ai-signal-list');
-    const statsTableEl = document.getElementById('ai-stats-table');
-    if(!aiEnabled){ lastAiMarkers = []; applyAllChartMarkers(); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; if (statsTableEl) statsTableEl.innerHTML=''; return;}
-    if(candlesData.length < 200) { aiList.innerHTML='<div class="ai-empty">Vui lòng chờ tải đủ 200 nến dữ liệu lịch sử...</div>'; if (statsTableEl) statsTableEl.innerHTML=''; return; }
+    if(!aiEnabled){ lastAiMarkers = []; applyAllChartMarkers(); aiList.innerHTML='<div class="ai-empty">AI Đang tắt. Bật công tắc để phân tích.</div>'; const sb = document.getElementById('ai-stats-bar'); if (sb) sb.innerHTML=''; return;}
+    if(candlesData.length < 200) { aiList.innerHTML='<div class="ai-empty">Vui lòng chờ tải đủ 200 nến dữ liệu lịch sử...</div>'; return; }
     
     const closes = candlesData.map(c => c.close);
     const vols = volumesData.map(v => v.value);
@@ -2640,23 +3380,28 @@
     const volSma = computeSMA(vols, 20);
     const atr14 = computeATR(candlesData, 14);
     const avgAtr = computeSMA(atr14, 50);
+    const adx14 = computeADX(candlesData, 14).adx; // đo độ mạnh xu hướng — lọc bớt tín hiệu trong vùng sideway
+    const bbLocal = computeBollinger(closes, 20, 2); // BB khung hiện tại — dùng riêng để lọc "climax phải nằm NGOÀI dải BB" (cực trị thống kê thật), không phụ thuộc chỉ báo BB người dùng có bật hiển thị hay không
 
     const signals = [];
     function addSignal(sig) { signals.push(sig); if (!signalsMap.has(sig.time)) signalsMap.set(sig.time, []); signalsMap.get(sig.time).push(sig); }
     function signalIconName(s) {
-      if (s.type === 'trend_long' || s.type === 'reversal_long') return 'trendUp';
-      if (s.type === 'trend_short' || s.type === 'reversal_short') return 'trendDown';
+      if (s.type === 'trend_long') return 'trendUp';
+      if (s.type === 'trend_short') return 'trendDown';
+      if (s.type === 'reversal_long') return 'trendUp';
+      if (s.type === 'reversal_short') return 'trendDown';
+      if (s.type === 'vol_spike') return 'barChart';
       if (s.type === 'climax_buy' || s.type === 'climax_sell') return 'alertTriangle';
       if (s.type === 'fng_block') return 'shield';
       return 'target';
     }
-    // Phân loại chú thích: THUẬN XU HƯỚNG (trend_long/short) vs ĐẢO CHIỀU (reversal đã xác nhận phân kỳ, có
-    // entry/target/SL riêng) vs WYCKOFF (climax chưa xác nhận & volume bất thường, chỉ mang tính cảnh báo)
+    // Phân loại chú thích: THUẬN XU HƯỚNG (đi theo trend đã xác nhận) vs ĐẢO CHIỀU (bắt đáy/đỉnh kiểu Wyckoff,
+    // rủi ro cao hơn, đi ngược xu hướng hiện tại) vs MOMENTUM (bùng nổ volume ngắn hạn, chưa đa khung xác nhận)
     function signalCategoryLabel(s) {
-      if (s.type === 'trend_long' || s.type === 'trend_short') return 'THUẬN XU HƯỚNG';
-      if (s.type === 'reversal_long' || s.type === 'reversal_short') return 'ĐẢO CHIỀU';
-      if (s.type === 'climax_buy' || s.type === 'climax_sell' || s.type === 'vol_spike') return 'WYCKOFF';
-      return 'AI TÍN HIỆU';
+      if (s.type === 'reversal_long' || s.type === 'reversal_short') return 'AI TÍN HIỆU · ĐẢO CHIỀU';
+      if (s.type === 'vol_spike') return 'AI TÍN HIỆU · MOMENTUM';
+      if (s.type === 'climax_buy' || s.type === 'climax_sell') return 'WYCKOFF';
+      return 'AI TÍN HIỆU · THUẬN XU HƯỚNG';
     }
     // ===== Xác nhận xu hướng đa khung THẬT (quét toàn bộ khung LỚN HƠN trong dải 5m-1M) =====
     // Chỉ cần MỘT trong các khung lớn hơn khung đang xem có tín hiệu Long/Short rõ ràng là đủ điều kiện
@@ -2671,8 +3416,7 @@
       return { tf, candles, ptr: 0, trend: computeHorizonTrend(candles, 21, 50, 10, 100, 3, 3).trend, bb: computeBollinger(candles.map(c => c.close), htfBBPeriod, htfBBMult) };
     }).filter(Boolean);
     // Nếu chưa có khung lớn nào tải xong dữ liệu (vừa mở app/đổi coin), KHÔNG chặn tín hiệu — dùng lại xác nhận nội bộ như cũ.
-    const htfConfirmLong = htfInfos.length === 0 || htfInfos.some(h => h.trend > 0);
-    const htfConfirmShort = htfInfos.length === 0 || htfInfos.some(h => h.trend < 0);
+    // (Điều kiện xác nhận HTF strict — htfConfirmLongStrict/htfConfirmShortStrict — được tính lại mỗi vòng lặp bên dưới.)
     // Dò nến của 1 khung lớn cụ thể gần nhất có thời gian <= time của nến LTF hiện tại (con trỏ tăng dần, dùng lại cho mỗi khung)
     function htfIdxAt(h, time) {
       if (!h.candles.length) return -1;
@@ -2680,13 +3424,44 @@
       return h.candles[h.ptr].time <= time ? h.ptr : -1;
     }
 
-    let lastLongIdx = -9999, lastShortIdx = -9999; const cooldownBars = 10;
+    let lastLongIdx = -9999, lastShortIdx = -9999; const cooldownBars = 20; // tăng từ 10 -> 20: giãn cách giữa các tín hiệu, tránh dồn cụm tín hiệu liên tiếp trong cùng 1 đợt sóng
+    lsHistoryPtr = 0; // duyệt lại candlesData từ đầu mỗi lần chạy -> con trỏ lịch sử L/S cũng phải về 0
     let lastClimaxBuyIdx = -9999, lastClimaxSellIdx = -9999; const climaxCooldownBars = 8;
     const climaxLookback = 10;
+    let lastVolLongIdx = -9999, lastVolShortIdx = -9999; const volCooldownBars = 6;
+    let pendingClimax = null; // { idx, dir:'buy'|'sell', high, low, close, divergenceConfirmed } — chờ xác nhận ở NẾN KẾ TIẾP trước khi vào lệnh thật, tránh bẫy climax giả (false exhaustion)
+    // Ứng viên cắt EMA21 (LONG/SHORT thuận xu hướng) — chờ xác nhận ở NẾN KẾ TIẾP trước khi chốt tín hiệu thật,
+    // tránh bẫy "false breakout" (giá xuyên qua EMA21 rồi rút chân ngược lại ngay, đúng kiểu gây lỗ hay gặp).
+    let pendingCrossUp = null, pendingCrossDown = null;
     
     for (let i = 200; i < candlesData.length; i++) {
       const c = candlesData[i]; const prevC = candlesData[i-1]; const v = vols[i]; const currRsi = rsi14[i];
       let isLongEntry = false; let isShortEntry = false; let isClimax = false;
+
+      // ===== XÁC NHẬN CLIMAX Ở NẾN KẾ TIẾP (giảm tín hiệu giả, tăng tỷ lệ thắng) =====
+      // Nến climax (i-1) chỉ là ỨNG VIÊN — chỉ chốt thành tín hiệu ĐẢO CHIỀU thật nếu nến NGAY SAU ĐÓ (nến
+      // này, i) xác nhận bị từ chối: không phá qua đỉnh/đáy climax VÀ đóng cửa lùi lại theo đúng hướng đảo
+      // chiều. Nếu nến sau lại phá tiếp theo hướng cũ -> climax giả (chỉ là nhịp nghỉ giữa xu hướng), hủy bỏ.
+      if (pendingClimax && i === pendingClimax.idx + 1) {
+        if (pendingClimax.dir === 'buy' && c.high <= pendingClimax.high && c.close < pendingClimax.close && (pendingClimax.idx - lastClimaxBuyIdx) >= climaxCooldownBars) {
+          lastClimaxBuyIdx = pendingClimax.idx;
+          const revStopLoss = pendingClimax.high + atr14[pendingClimax.idx] * 0.3;
+          const revStopDistance = revStopLoss - c.close;
+          let revTarget = c.close - revStopDistance * 1.5;
+          if (ema21[i] < c.close && (c.close - ema21[i]) > revStopDistance * 0.8) revTarget = ema21[i];
+          addSignal({ time: c.time, idx: i, type: 'reversal_short', label: 'BÁN ĐỈNH (ĐẢO CHIỀU)', tone: 'down', price: c.close, entry: c.close, target: revTarget, sl: revStopLoss, divergenceConfirmed: pendingClimax.divergenceConfirmed,
+            desc: `Buying Climax ĐÃ ĐƯỢC XÁC NHẬN: nến sau không phá được đỉnh climax và đóng cửa thấp hơn — bên mua thật sự đuối sức. Có phân kỳ giảm xác nhận thêm — độ tin cậy cao.`, color: '#c084fc' });
+        } else if (pendingClimax.dir === 'sell' && c.low >= pendingClimax.low && c.close > pendingClimax.close && (pendingClimax.idx - lastClimaxSellIdx) >= climaxCooldownBars) {
+          lastClimaxSellIdx = pendingClimax.idx;
+          const revStopLoss = pendingClimax.low - atr14[pendingClimax.idx] * 0.3;
+          const revStopDistance = c.close - revStopLoss;
+          let revTarget = c.close + revStopDistance * 1.5;
+          if (ema21[i] > c.close && (ema21[i] - c.close) > revStopDistance * 0.8) revTarget = ema21[i];
+          addSignal({ time: c.time, idx: i, type: 'reversal_long', label: 'MUA ĐÁY (ĐẢO CHIỀU)', tone: 'up', price: c.close, entry: c.close, target: revTarget, sl: revStopLoss, divergenceConfirmed: pendingClimax.divergenceConfirmed,
+            desc: `Selling Climax ĐÃ ĐƯỢC XÁC NHẬN: nến sau không phá được đáy climax và đóng cửa cao hơn — bên bán thật sự đuối sức. Có phân kỳ tăng xác nhận thêm — độ tin cậy cao.`, color: '#c084fc' });
+        }
+        pendingClimax = null; // chỉ chờ đúng 1 nến để xác nhận — quá hạn thì hủy ứng viên, không chờ thêm
+      }
 
       // 1. TÍN HIỆU THUẬN XU HƯỚNG — yêu cầu đồng thuận đa khung (EMA9/21, 21/50, 50/200)
       const shortSig = ema9[i] > ema21[i] ? 1 : -1;
@@ -2694,26 +3469,57 @@
       const longSig = ema50[i] > ema200[i] ? 1 : -1;
       const confluence = shortSig + mediumSig + longSig; // -3..+3, càng lớn càng đồng thuận nhiều khung
 
-      const isUptrend = ema50[i] > ema200[i] && c.close > ema200[i] && confluence >= 2;
-      const isDowntrend = ema50[i] < ema200[i] && c.close < ema200[i] && confluence <= -2;
-      // Khung LỚN (HTF) phải đang xác nhận đúng chiều Long/Short thì mới cho phép bắt entry chính xác ở khung NHỎ NHẤT
-      if (isUptrend && htfConfirmLong && prevC.close < ema21[i-1] && c.close > ema21[i] && c.close > c.open && currRsi > 50 && currRsi < 75 && (i - lastLongIdx) >= cooldownBars) isLongEntry = true;
-      if (isDowntrend && htfConfirmShort && prevC.close > ema21[i-1] && c.close < ema21[i] && c.close < c.open && currRsi < 50 && currRsi > 25 && (i - lastShortIdx) >= cooldownBars) isShortEntry = true;
+      // SIẾT #1: trước đây chỉ cần 2/3 khung EMA đồng thuận (confluence >= 2) — hay gây tín hiệu giả trong
+      // vùng giằng co khi các EMA cắt qua lại liên tục. Giờ bắt buộc ĐỒNG THUẬN TOÀN BỘ 3/3 khung.
+      const isUptrend = ema50[i] > ema200[i] && c.close > ema200[i] && confluence === 3;
+      const isDowntrend = ema50[i] < ema200[i] && c.close < ema200[i] && confluence === -3;
+
+      // SIẾT #2 (v2 — chặt hơn): trước đây chỉ cần 1 khung lớn có trend === 1 là đủ. Giờ nếu có từ 2 khung lớn
+      // trở lên, bắt buộc ĐA SỐ (>50%) các khung đó cùng xác nhận thật — 1 khung lẻ loi không còn đủ để bắt entry.
+      const htfLongStrictCount = htfInfos.filter(h => h.trend === 1).length;
+      const htfShortStrictCount = htfInfos.filter(h => h.trend === -1).length;
+      const htfRequiredConfirms = htfInfos.length > 0 ? Math.max(1, Math.ceil((htfInfos.length + 1) / 2)) : 0;
+      const htfConfirmLongStrict = htfInfos.length === 0 || htfLongStrictCount >= htfRequiredConfirms;
+      const htfConfirmShortStrict = htfInfos.length === 0 || htfShortStrictCount >= htfRequiredConfirms;
+
+      // SIẾT #3 (v2 — chặt hơn): ngưỡng ADX nâng từ 22 lên 26 — chỉ giữ lại các đợt trend thật sự dứt khoát,
+      // bỏ hẳn vùng "trend vừa vừa" hay bị đảo ngược giữa chừng.
+      const adxOk = adx14[i] >= 26;
+
+      // SIẾT #5 (MỚI): lọc khối lượng — nến xác nhận (nến sau khi cắt EMA21) phải có volume >= trung bình 20
+      // nến gần nhất. Nếu giá trườn qua EMA21 với volume yếu ớt (không ai thật sự tham gia đẩy giá), khả năng
+      // cao đó chỉ là nhiễu / thanh khoản mỏng, dễ bị đảo ngược ngay sau đó.
+      const confirmVolOk = (idx) => volSma[idx] > 0 ? vols[idx] >= volSma[idx] : true;
+
+      const upCrossNow = prevC.close < ema21[i-1] && c.close > ema21[i] && c.close > c.open && currRsi > 50 && currRsi < 75;
+      const downCrossNow = prevC.close > ema21[i-1] && c.close < ema21[i] && c.close < c.open && currRsi < 50 && currRsi > 25;
+
+      // SIẾT #4 (MỚI): thay vì vào lệnh NGAY tại nến vừa cắt EMA21 (rất dễ dính false breakout — giá xuyên
+      // qua rồi rút chân ngược lại ngay như trong ảnh ví dụ), giờ chỉ đăng ký ỨNG VIÊN tại nến cắt...
+      if (isUptrend && htfConfirmLongStrict && adxOk && upCrossNow) pendingCrossUp = { idx: i, level: ema21[i] };
+      if (isDowntrend && htfConfirmShortStrict && adxOk && downCrossNow) pendingCrossDown = { idx: i, level: ema21[i] };
+
+      // ...và chỉ CHỐT tín hiệu thật ở NẾN KẾ TIẾP nếu giá vẫn giữ được vị trí trên/dưới EMA21 (không rút
+      // chân về ngược lại ngay) VÀ nến xác nhận có volume đủ mạnh — cùng cơ chế xác nhận 1 nến đã áp dụng
+      // thành công cho climax Wyckoff ở trên.
+      if (pendingCrossUp && i === pendingCrossUp.idx + 1) {
+        if (c.close > ema21[i] && c.close >= pendingCrossUp.level && confirmVolOk(i) && (i - lastLongIdx) >= cooldownBars) isLongEntry = true;
+        pendingCrossUp = null;
+      }
+      if (pendingCrossDown && i === pendingCrossDown.idx + 1) {
+        if (c.close < ema21[i] && c.close <= pendingCrossDown.level && confirmVolOk(i) && (i - lastShortIdx) >= cooldownBars) isShortEntry = true;
+        pendingCrossDown = null;
+      }
 
       // Bỏ qua tín hiệu khi thị trường quá "chết" (biến động thấp hơn 60% trung bình) — tránh entry vô nghĩa trong sideway hẹp
       if (avgAtr[i] > 0 && atr14[i] < avgAtr[i] * 0.6) { isLongEntry = false; isShortEntry = false; }
 
-      // ĐÃ SỬA: trước đây điều kiện "i === candlesData.length - 1" chỉ lọc theo tâm lý đám đông cho nến CUỐI
-      // CÙNG, khiến backtest không công bằng — toàn bộ tín hiệu lịch sử phía trước không hề bị lọc trong khi
-      // tín hiệu mới nhất thì có, làm tỷ lệ thắng thống kê được của hệ thống bị thổi phồng giả tạo (vì các lệnh
-      // lẽ ra phải bị chặn bởi tâm lý cực đoan vẫn được tính là "đã vào lệnh" trong quá khứ). Do sàn không cung
-      // cấp lịch sử tỷ lệ Long/Short theo từng thời điểm, ta dùng CHUNG một mức lọc (tỷ lệ hiện tại) áp dụng
-      // ĐỒNG NHẤT cho mọi nến trong vòng quét — không còn đặc cách riêng cho nến cuối — để thống kê thắng/thua
-      // phản ánh đúng cách hệ thống thực sự sẽ lọc lệnh nếu chạy suốt giai đoạn đó.
       let isFilteredBySentiment = false; let filterReason = "";
-      if (typeof binanceLSRatio !== 'undefined') {
-        if (isLongEntry && binanceLSRatio > 2.5) { isLongEntry = false; isFilteredBySentiment = true; filterReason = `HỦY LONG: Đám đông FOMO (L/S: ${binanceLSRatio.toFixed(2)}).`; }
-        if (isShortEntry && binanceLSRatio < 0.8) { isShortEntry = false; isFilteredBySentiment = true; filterReason = `HỦY SHORT: Đám đông hoảng loạn (L/S: ${binanceLSRatio.toFixed(2)}).`; }
+      const lsAtBar = lsRatioAt(c.time); // tỷ lệ L/S THẬT tại đúng thời điểm nến này (lịch sử) — áp dụng đồng nhất cho cả nến quá khứ lẫn nến hiện tại, để log hiển thị đúng những gì sẽ xảy ra nếu chạy live
+      const lsForFilter = lsAtBar !== null ? lsAtBar : (i === candlesData.length - 1 ? binanceLSRatio : null); // dự phòng: nếu chưa tải xong lịch sử L/S thì tạm dùng giá trị realtime CHỈ cho nến hiện tại
+      if (lsForFilter !== null) {
+        if (isLongEntry && lsForFilter > 2.5) { isLongEntry = false; isFilteredBySentiment = true; filterReason = `HỦY LONG: Đám đông FOMO (L/S: ${lsForFilter.toFixed(2)}).`; }
+        if (isShortEntry && lsForFilter < 0.8) { isShortEntry = false; isFilteredBySentiment = true; filterReason = `HỦY SHORT: Đám đông hoảng loạn (L/S: ${lsForFilter.toFixed(2)}).`; }
       }
 
       // R:R thưởng cho tín hiệu đồng thuận toàn bộ 3 khung (2.2) so với đồng thuận 2/3 khung (1.6)
@@ -2732,19 +3538,23 @@
         let targetDesc = `R:R 1:${rr}.`;
         const confirmingTfs = [];
         for (const h of htfInfos) {
-          if (h.trend > 0) confirmingTfs.push(h.tf);
+          if (h.trend === 1) confirmingTfs.push(h.tf); // chỉ liệt kê khung có xác nhận THẬT (EMA + cấu trúc), khớp với điều kiện đã gate entry
         }
         for (const h of htfInfos) {
           if (h.trend <= 0) continue;
           const idx = htfIdxAt(h, c.time);
-          if (idx >= 0 && h.bb.upper[idx] != null && h.bb.upper[idx] > c.close) {
+          // SỬA LỖI: trước đây chỉ cần BB-upper nằm TRÊN giá đóng cửa là dùng làm target, không kiểm tra
+          // khoảng cách — khi giá đã bám sát dải BB (rất hay xảy ra vì ADX bắt buộc trend mạnh), target ra
+          // rất gần entry, có khi còn gần hơn SL (R:R âm). Giờ chỉ dùng target BB nếu nó xa TỐI THIỂU bằng
+          // target theo ATR mặc định (không bao giờ tệ hơn phương án dự phòng).
+          if (idx >= 0 && h.bb.upper[idx] != null && (h.bb.upper[idx] - c.close) >= stopDistance * rr) {
             targetPrice = h.bb.upper[idx];
             targetDesc = `Target = dải trên BB ${htfBBPeriod},${htfBBMult} khung ${h.tf} (điểm chốt an toàn, không quá xa).`;
             break; // htfInfos tăng dần theo khung -> khung đầu tiên hợp lệ luôn là khung lớn GẦN NHẤT
           }
         }
         const tfNote = confirmingTfs.length ? `Khung lớn xác nhận LONG: ${confirmingTfs.join(', ')}.` : '';
-        addSignal({ time: c.time, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, _idx: i, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentUpColor });
+        addSignal({ time: c.time, idx: i, type: 'trend_long', label: 'MUA - LONG', tone: 'up', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} ADX14: ${adx14[i].toFixed(1)} (xu hướng mạnh, dứt khoát). Nến xác nhận có volume ≥ TB20 và đã qua 1 nến giữ vững trên EMA21 (chống false breakout). Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentUpColor });
       } else if (isShortEntry) {
         lastShortIdx = i;
         const stopLoss = c.close + stopDistance;
@@ -2752,26 +3562,43 @@
         let targetDesc = `R:R 1:${rr}.`;
         const confirmingTfs = [];
         for (const h of htfInfos) {
-          if (h.trend < 0) confirmingTfs.push(h.tf);
+          if (h.trend === -1) confirmingTfs.push(h.tf); // chỉ liệt kê khung có xác nhận THẬT (EMA + cấu trúc), khớp với điều kiện đã gate entry
         }
         for (const h of htfInfos) {
           if (h.trend >= 0) continue;
           const idx = htfIdxAt(h, c.time);
-          if (idx >= 0 && h.bb.lower[idx] != null && h.bb.lower[idx] < c.close) {
+          // SỬA LỖI: cùng lý do như bên LONG — chỉ dùng target BB nếu xa TỐI THIỂU bằng target theo ATR mặc định.
+          if (idx >= 0 && h.bb.lower[idx] != null && (c.close - h.bb.lower[idx]) >= stopDistance * rr) {
             targetPrice = h.bb.lower[idx];
             targetDesc = `Target = dải dưới BB ${htfBBPeriod},${htfBBMult} khung ${h.tf} (điểm chốt an toàn, không quá xa).`;
             break; // khung đầu tiên hợp lệ luôn là khung lớn GẦN NHẤT
           }
         }
         const tfNote = confirmingTfs.length ? `Khung lớn xác nhận SHORT: ${confirmingTfs.join(', ')}.` : '';
-        addSignal({ time: c.time, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, _idx: i, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentDownColor });
+        addSignal({ time: c.time, idx: i, type: 'trend_short', label: 'BÁN - SHORT', tone: 'down', price: c.close, entry: c.close, target: targetPrice, sl: stopLoss, desc: `Đồng thuận đa khung: ${confidenceLabel}. ${tfNote} ADX14: ${adx14[i].toFixed(1)} (xu hướng mạnh, dứt khoát). Nến xác nhận có volume ≥ TB20 và đã qua 1 nến giữ vững dưới EMA21 (chống false breakout). Entry tối ưu tại khung ${currentInterval}. ${targetDesc}`, color: currentDownColor });
       }
 
       // 2. TÍN HIỆU VOLUME ĐỘT BIẾN / CLIMAX — đã tối ưu: chỉ báo climax THẬT khi có đủ 4 điều kiện
       // (1) volume đột biến, (2) đã có nhịp tăng/giảm rõ rệt trước đó (so ATR), (3) RSI đang quá mua/quá bán,
       // (4) biên độ nến (range) bất thường + bấc áp đảo thân nến. Có cooldown riêng tránh báo dồn dập.
       const avgVol = volSma[i];
-      if (v > avgVol * aiVolMult) {
+      // ===== TỐI ƯU ENTRY SỚM: chuẩn hóa volume theo thời gian đã trôi qua trong nến CUỐI CÙNG đang chạy =====
+      // Nến đang chạy (chưa đóng) chỉ có volume TÍCH LŨY từ đầu nến tới giờ. Nếu so trực tiếp v > avgVol*mult,
+      // một nến 4h mới trôi qua 10% thời gian gần như không bao giờ đạt ngưỡng dù dòng tiền đang cực mạnh
+      // -> tín hiệu luôn bị trễ tới gần cuối nến. Chuẩn hóa v theo elapsedFraction (tốc độ dòng tiền / phút)
+      // cho phép phát hiện NGAY khi tốc độ vượt trội, sớm hơn nhiều so với đợi volume tuyệt đối đủ lớn.
+      const isLiveLastBar = isLiveSignalPreview && i === candlesData.length - 1;
+      let effVol = v; let projectedRatioNote = '';
+      if (isLiveLastBar) {
+        const isec = intervalSeconds();
+        const elapsedFraction = Math.min(1, Math.max(0, (Date.now() / 1000 - c.time) / isec));
+        // Bỏ qua vài giây đầu tiên (elapsedFraction quá nhỏ) để tránh chia cho số gần 0 gây tín hiệu nhiễu
+        if (elapsedFraction > 0.04) {
+          effVol = v / elapsedFraction;
+          projectedRatioNote = ' (ước tính theo tốc độ dòng tiền — nến chưa đóng)';
+        }
+      }
+      if (effVol > avgVol * aiVolMult) {
         const body = Math.abs(c.close - c.open);
         const range = Math.max(c.high - c.low, 1e-9);
         const upperWick = c.high - Math.max(c.open, c.close);
@@ -2787,65 +3614,43 @@
         const isBuyClimaxShape = c.close > c.open && upperWick > body * 1.5 && upperWick > range * 0.35;
         const isSellClimaxShape = c.close < c.open && lowerWick > body * 1.5 && lowerWick > range * 0.35;
 
-        // Phân kỳ RSI/giá là điều kiện XÁC NHẬN bắt buộc để nâng cấp climax thành tín hiệu MUA/BÁN đảo chiều
-        // đầy đủ (entry/target/SL riêng). Không có phân kỳ -> chỉ giữ lại cảnh báo climax nhẹ như cũ (không entry).
-        const div = detectDivergence(candlesData, rsi14, i);
-
-        if (isBuyClimaxShape && priorUptrend && rangeIsWide && currRsi > 65 && (i - lastClimaxBuyIdx) >= climaxCooldownBars) {
-           lastClimaxBuyIdx = i;
-           if (div.bearish) {
-             // Buying Climax + phân kỳ giảm RSI/giá xác nhận -> nâng cấp thành tín hiệu BÁN - ĐẢO CHIỀU đầy đủ.
-             // Stop Loss đặt trên đỉnh nến climax (điểm phá vỡ cấu trúc), Target theo R:R cố định REVERSAL_RR.
-             const entry = c.close;
-             const sl = c.high + atr14[i] * 0.3;
-             const risk = sl - entry;
-             const target = entry - risk * REVERSAL_RR;
-             addSignal({ time: c.time, type: 'reversal_short', label: 'BÁN - ĐẢO CHIỀU', tone: 'down', price: c.close, entry, target, sl, _idx: i, desc: `Buying Climax + phân kỳ giảm RSI/giá: Vol x${(v/avgVol).toFixed(1)} sau nhịp tăng mạnh, RSI ${currRsi.toFixed(0)} quá mua nhưng giá tạo đỉnh mới còn RSI không xác nhận -> lực mua suy yếu rõ rệt. R:R 1:${REVERSAL_RR}.`, color: currentDownColor });
-           } else {
-             addSignal({ time: c.time, type: 'climax_buy', label: 'CẢNH BÁO ĐỈNH (CHƯA XÁC NHẬN)', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} sau nhịp tăng mạnh, RSI ${currRsi.toFixed(0)} quá mua. Bị xả mạnh, nhưng CHƯA phát hiện phân kỳ RSI/giá xác nhận.`, color: '#ffc93c' });
-           }
-        } else if (isSellClimaxShape && priorDowntrend && rangeIsWide && currRsi < 35 && (i - lastClimaxSellIdx) >= climaxCooldownBars) {
-           lastClimaxSellIdx = i;
-           if (div.bullish) {
-             // Selling Climax + phân kỳ tăng RSI/giá xác nhận -> nâng cấp thành tín hiệu MUA - ĐẢO CHIỀU đầy đủ.
-             // Stop Loss đặt dưới đáy nến climax (điểm phá vỡ cấu trúc), Target theo R:R cố định REVERSAL_RR.
-             const entry = c.close;
-             const sl = c.low - atr14[i] * 0.3;
-             const risk = entry - sl;
-             const target = entry + risk * REVERSAL_RR;
-             addSignal({ time: c.time, type: 'reversal_long', label: 'MUA - ĐẢO CHIỀU', tone: 'up', price: c.close, entry, target, sl, _idx: i, desc: `Selling Climax + phân kỳ tăng RSI/giá: Vol x${(v/avgVol).toFixed(1)} sau nhịp giảm mạnh, RSI ${currRsi.toFixed(0)} quá bán nhưng giá tạo đáy mới còn RSI không xác nhận -> lực bán suy yếu rõ rệt. R:R 1:${REVERSAL_RR}.`, color: currentUpColor });
-           } else {
-             addSignal({ time: c.time, type: 'climax_sell', label: 'CẢNH BÁO ĐÁY (CHƯA XÁC NHẬN)', tone: 'warn', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} sau nhịp giảm mạnh, RSI ${currRsi.toFixed(0)} quá bán. Lực bắt đáy mạnh, nhưng CHƯA phát hiện phân kỳ RSI/giá xác nhận.`, color: '#ffc93c' });
-           }
-        } else if (c.close > c.open && !isLongEntry) {
-           // Vẽ lại chấm tròn cho Volume Bùng nổ (Mua)
-           addSignal({ time: c.time, type: 'vol_spike', label: 'BÙNG NỔ MUA', tone: 'up', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} lần trung bình.`, color: currentUpColor });
-        } else if (c.close < c.open && !isShortEntry) {
-           // Vẽ lại chấm tròn cho Volume Bùng nổ (Bán)
-           addSignal({ time: c.time, type: 'vol_spike', label: 'XẢ HÀNG MẠNH', tone: 'down', price: c.close, desc: `Vol x${(v/avgVol).toFixed(1)} lần trung bình.`, color: currentDownColor });
+        // Buying Climax (kiệt sức bên MUA ở đỉnh xu hướng tăng) -> ỨNG VIÊN cho tín hiệu ĐẢO CHIỀU GIẢM.
+        // Thêm 3 bộ lọc SIẾT CHẶT để tăng tỷ lệ thắng (so với bản trước): (a) giá phải đóng cửa NGOÀI dải BB
+        // trên (cực trị thống kê thật, không phải chỉ "nến to"); (b) BẮT BUỘC có phân kỳ giảm xác nhận (trước
+        // đây chỉ là điểm cộng, giờ là điều kiện cần — ít tín hiệu hơn nhưng chất lượng cao hơn hẳn); (c) KHÔNG
+        // đánh ngược nếu TẤT CẢ khung lớn hơn đang đồng thuận tăng rất mạnh (tránh chống lại xu hướng lớn áp đảo).
+        const bbBuyExtreme = bbLocal.upper[i] != null && c.close > bbLocal.upper[i];
+        const allHtfStronglyBull = htfInfos.length > 0 && htfInfos.every(h => h.trend > 0);
+        if (isBuyClimaxShape && priorUptrend && rangeIsWide && currRsi > 65 && bbBuyExtreme && !allHtfStronglyBull && (i - lastClimaxBuyIdx) >= climaxCooldownBars) {
+           const divergenceConfirmed = detectBearishDivergence(candlesData, rsi14, i);
+           if (divergenceConfirmed) pendingClimax = { idx: i, dir: 'buy', high: c.high, low: c.low, close: c.close, divergenceConfirmed };
+        // Selling Climax (kiệt sức bên BÁN ở đáy xu hướng giảm) -> ỨNG VIÊN cho tín hiệu ĐẢO CHIỀU TĂNG.
+        } else if (isSellClimaxShape && priorDowntrend && rangeIsWide && currRsi < 35 && (() => { const bbSellExtreme = bbLocal.lower[i] != null && c.close < bbLocal.lower[i]; return bbSellExtreme; })() && !(htfInfos.length > 0 && htfInfos.every(h => h.trend < 0)) && (i - lastClimaxSellIdx) >= climaxCooldownBars) {
+           const divergenceConfirmed = detectBullishDivergence(candlesData, rsi14, i);
+           if (divergenceConfirmed) pendingClimax = { idx: i, dir: 'sell', high: c.high, low: c.low, close: c.close, divergenceConfirmed };
+        } else if (c.close > c.open && !isLongEntry && (i - lastVolLongIdx) >= volCooldownBars) {
+           // BÙNG NỔ MUA — nến xanh + volume đột biến nhưng CHƯA đủ đồng thuận đa khung như trend_long,
+           // nên coi là tín hiệu MOMENTUM ngắn hạn: R:R thấp hơn, SL sát hơn, độ tin cậy thấp hơn trend/đảo chiều.
+           lastVolLongIdx = i;
+           const volStopDistance = Math.max(atr14[i] * 1.1, c.close * 0.0035);
+           const volStopLoss = c.close - volStopDistance;
+           const volTarget = c.close + volStopDistance * 1.3;
+           addSignal({ time: c.time, idx: i, type: 'vol_spike', label: 'BÙNG NỔ MUA', tone: 'up', price: c.close, entry: c.close, target: volTarget, sl: volStopLoss,
+             desc: `Vol x${(effVol/avgVol).toFixed(1)} lần trung bình${projectedRatioNote}, nến xanh áp đảo — lực mua ngắn hạn, CHƯA có xác nhận đa khung như tín hiệu LONG thuận xu hướng nên độ tin cậy thấp hơn, R:R và khối lượng vào lệnh nên nhỏ hơn.`, color: currentUpColor });
+        } else if (c.close < c.open && !isShortEntry && (i - lastVolShortIdx) >= volCooldownBars) {
+           // XẢ HÀNG MẠNH — tương tự, momentum giảm ngắn hạn chưa đủ đồng thuận đa khung.
+           lastVolShortIdx = i;
+           const volStopDistance = Math.max(atr14[i] * 1.1, c.close * 0.0035);
+           const volStopLoss = c.close + volStopDistance;
+           const volTarget = c.close - volStopDistance * 1.3;
+           addSignal({ time: c.time, idx: i, type: 'vol_spike', label: 'XẢ HÀNG MẠNH', tone: 'down', price: c.close, entry: c.close, target: volTarget, sl: volStopLoss,
+             desc: `Vol x${(effVol/avgVol).toFixed(1)} lần trung bình${projectedRatioNote}, nến đỏ áp đảo — lực bán ngắn hạn, CHƯA có xác nhận đa khung như tín hiệu SHORT thuận xu hướng nên độ tin cậy thấp hơn, R:R và khối lượng vào lệnh nên nhỏ hơn.`, color: currentDownColor });
         }
       }
 
       if (isFilteredBySentiment) { addSignal({ time: c.time, type: 'fng_block', label: 'AI CHẶN LỆNH', tone: 'warn', price: c.close, desc: filterReason, color: '#6b7280' }); }
     }
     
-    // ==== Bảng thống kê backtest (tỷ lệ thắng, R trung bình) cho từng loại tín hiệu ====
-    // Chạy trên TOÀN BỘ tín hiệu có entry/target/SL đã phát ra trong lịch sử đã tải (không chỉ phần đang hiển
-    // thị), để người dùng tự đánh giá độ tin cậy của từng loại tín hiệu trước khi quyết định vào lệnh.
-    const statsByType = {};
-    STAT_SIGNAL_TYPES.forEach(t => statsByType[t.type] = { wins: 0, losses: 0, sumR: 0 });
-    signals.forEach(s => {
-      if (s._idx == null || s.entry == null) return;
-      const bucket = statsByType[s.type];
-      if (!bucket) return;
-      const isLong = (s.type === 'trend_long' || s.type === 'reversal_long');
-      const r = simulateSignalOutcome(s._idx, s.entry, s.target, s.sl, isLong);
-      if (r === null) return; // lệnh chưa đóng trong phạm vi quét -> không tính vào thống kê
-      bucket.sumR += r;
-      if (r > 0) bucket.wins++; else bucket.losses++;
-    });
-    renderSignalStatsTable(statsByType);
-
     const visibleSignals = signals.filter(s => s.time >= aiIgnoreBeforeTime && !deletedLogTimes.has(s.time));
 
     // Chú thích cho mỗi cây nến có sự kiện: LONG/SHORT (AI tín hiệu), B.CLX/S.CLX + VOL+/VOL- (Wyckoff), CHẶN (AI lọc lệnh theo tâm lý)
@@ -2853,8 +3658,8 @@
     visibleSignals.forEach(s => {
       if (s.type === 'trend_long') markers.push({ time: s.time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: 'LONG' });
       else if (s.type === 'trend_short') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'arrowDown', text: 'SHORT' });
-      else if (s.type === 'reversal_long') markers.push({ time: s.time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: 'REV.L' });
-      else if (s.type === 'reversal_short') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'arrowDown', text: 'REV.S' });
+      else if (s.type === 'reversal_long') markers.push({ time: s.time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: 'MUA ĐÁY' });
+      else if (s.type === 'reversal_short') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'arrowDown', text: 'BÁN ĐỈNH' });
       else if (s.type === 'fng_block') markers.push({ time: s.time, position: 'aboveBar', color: s.color, shape: 'square', text: 'CHẶN' });
       else if (s.type === 'climax_buy') markers.push({ time: s.time, position: 'aboveBar', color: '#ffc93c', shape: 'arrowDown', text: 'B.CLX' });
       else if (s.type === 'climax_sell') markers.push({ time: s.time, position: 'belowBar', color: '#ffc93c', shape: 'arrowUp', text: 'S.CLX' });
@@ -2863,19 +3668,62 @@
     markers.sort((a,b) => a.time - b.time);
     lastAiMarkers = markers;
     applyAllChartMarkers();
-    
+
+    // ===== THỐNG KÊ HIỆU SUẤT (backtest đơn giản) — soi lại nến TƯƠNG LAI (tối đa 300 nến, hoặc hết dữ
+    // liệu) xem Target hay SL bị chạm trước, để tính tỷ lệ thắng & R trung bình THẬT cho từng loại tín
+    // hiệu — giúp tự đánh giá khách quan việc tối ưu có thực sự hiệu quả hơn hay không, thay vì đoán.
+    function evaluateSignalOutcome(sig) {
+      if (sig.idx == null) return null;
+      const isLong = sig.tone === 'up';
+      const horizon = Math.min(candlesData.length, sig.idx + 300);
+      for (let j = sig.idx + 1; j < horizon; j++) {
+        const cc = candlesData[j];
+        if (isLong) { if (cc.low <= sig.sl) return 'loss'; if (cc.high >= sig.target) return 'win'; }
+        else { if (cc.high >= sig.sl) return 'loss'; if (cc.low <= sig.target) return 'win'; }
+      }
+      return 'open';
+    }
+    const statsBuckets = { trend: { label: 'Thuận xu hướng', win: 0, loss: 0, open: 0, rSum: 0 }, reversal: { label: 'Đảo chiều', win: 0, loss: 0, open: 0, rSum: 0 }, momentum: { label: 'Momentum', win: 0, loss: 0, open: 0, rSum: 0 } };
+    signals.forEach(s => {
+      if (!s.entry || s.idx == null) return;
+      const bucket = (s.type === 'reversal_long' || s.type === 'reversal_short') ? statsBuckets.reversal : (s.type === 'trend_long' || s.type === 'trend_short') ? statsBuckets.trend : (s.type === 'vol_spike') ? statsBuckets.momentum : null;
+      if (!bucket) return;
+      const outcome = evaluateSignalOutcome(s);
+      const riskDist = Math.abs(s.entry - s.sl) || 1e-9;
+      if (outcome === 'win') { bucket.win++; bucket.rSum += Math.abs(s.target - s.entry) / riskDist; }
+      else if (outcome === 'loss') { bucket.loss++; bucket.rSum -= 1; }
+      else bucket.open++;
+    });
+    const statsBar = document.getElementById('ai-stats-bar');
+    if (statsBar) {
+      const chips = Object.values(statsBuckets).map(b => {
+        const closed = b.win + b.loss;
+        if (closed === 0) return `<div class="ai-stats-chip"><span class="stat-label">${b.label}:</span>chưa đủ dữ liệu đóng lệnh${b.open ? ` (${b.open} đang mở)` : ''}</div>`;
+        const winRate = (b.win / closed * 100).toFixed(0);
+        const avgR = (b.rSum / closed).toFixed(2);
+        const rColor = b.rSum >= 0 ? 'var(--up)' : 'var(--down)';
+        return `<div class="ai-stats-chip"><span class="stat-label">${b.label}:</span><b>${closed}</b> lệnh đã đóng · Thắng <b>${winRate}%</b> · R TB <b style="color:${rColor}">${avgR >= 0 ? '+' : ''}${avgR}R</b>${b.open ? ` · ${b.open} đang mở` : ''}</div>`;
+      }).join('');
+      statsBar.innerHTML = chips;
+    }
+
     aiList.innerHTML = '';
     if (visibleSignals.length === 0){ aiList.innerHTML = '<div class="ai-empty">Chưa có dữ liệu hoặc đã được dọn sạch sẽ...</div>'; return; }
     
     visibleSignals.slice(-15).reverse().forEach(s => {
-      const row = document.createElement('div'); row.className = 'signal-row';
+      const row = document.createElement('div'); row.className = 'signal-row jumpable'; row.title = 'Nhấp để xem trên biểu đồ';
       const proNoteHtml = `<div class="signal-desc" style="color:#8b93a7; font-size:11px; margin-top:5px; line-height:1.5; display:flex; gap:5px; align-items:flex-start;">${icon('pin', 'ico-inline')}<span>${getProNote(s)}</span></div>`;
       let descHtml = s.entry 
         ? `<div class="signal-desc" style="margin-top:5px; font-family:'JetBrains Mono', monospace; font-size:12px; font-weight:600;"><span style="color:var(--up)">${icon('dot','ico-inline')}Entry: ${fmt(s.entry)}</span> | <span style="color:var(--gold)">${icon('dot','ico-inline')}Target: ${fmt(s.target)}</span> | <span style="color:var(--down)">${icon('dot','ico-inline')}SL: ${fmt(s.sl)}</span></div><div class="signal-desc" style="color:var(--text-dim); font-size:11.5px; margin-top:3px;">${s.desc}</div>${proNoteHtml}` 
         : `<div class="signal-desc" style="color:var(--text-dim); font-size:12.5px; margin-top:5px;">${s.desc}</div>${proNoteHtml}`;
 
-      const cat = signalCategoryLabel(s); const catCls = cat === 'WYCKOFF' ? 'cat-wyckoff' : (cat === 'ĐẢO CHIỀU' ? 'cat-reversal' : '');
+      const cat = signalCategoryLabel(s); const catCls = cat === 'WYCKOFF' ? 'cat-wyckoff' : (cat.indexOf('ĐẢO CHIỀU') >= 0 ? 'cat-reversal' : (cat.indexOf('MOMENTUM') >= 0 ? 'cat-momentum' : ''));
       row.innerHTML = `<div style="display:flex; flex:1; padding-right: 10px;"><div class="signal-badge-wrap"><span class="signal-eyebrow ${catCls}">${cat}</span><div class="signal-badge ${s.tone}">${icon(signalIconName(s))}<span class="lbl">${s.label}</span></div></div><div class="signal-body" style="flex:1;"><div class="signal-meta"><span class="signal-time">${fmtTime(s.time)}</span><span class="signal-price" style="font-weight:700;">${s.entry ? 'Vùng:' : 'Giá:'} ${fmt(s.price)} USDT</span></div>${descHtml}</div></div><div style="display:flex; align-items:center;"><button class="btn-delete-item" onclick="deleteSingleLog(${s.time})" title="Xóa">${icon('x')}</button></div>`;
+      // Bấm vào dòng tín hiệu (trừ nút xóa) -> tự dịch chuyển biểu đồ tới đúng cây nến của tín hiệu này + chớp nháy nhận biết
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-delete-item')) return;
+        jumpToCandleTime(s.time);
+      });
       aiList.appendChild(row);
     });
   }
@@ -3033,11 +3881,13 @@
     // Đổi coin -> lọc lại nhật ký cá mập để chỉ hiện đúng dữ liệu của coin vừa chọn ngay lập tức
     // (dữ liệu của các coin khác vẫn được giữ nguyên, đang được ghi nhận ở nền).
     if (typeof renderWhaleLogs === 'function') renderWhaleLogs();
+    stopFlashHighlight(); // đổi coin/khung -> hủy vầng sáng đang chớp nháy (nếu có) vì cây nến cũ không còn hợp lệ
     lastAiMarkers = []; candleSeriesMarkers.setMarkers([]); // xóa icon/tín hiệu của coin hoặc khung cũ ngay, tránh hiện sai trong lúc chờ nến mới tải xong
 
     fetchSyncData(true); fetchHtfData();
     syncInterval = setInterval(() => { fetchSyncData(false); fetchHtfData(); }, 45 * 1000);
     fetchBinanceSentiment(currentSymbol);
+    fetchHistoricalLSRatio(currentSymbol);
 
     function initWebSockets() {
       currentTickerWS = new WebSocket(`wss://stream.binance.com:9443/ws/${currentSymbol.toLowerCase()}@ticker`);
@@ -3090,6 +3940,19 @@
       let liveTradeBuf = []; let lastLiveGaugeTs = 0;
       const LIVE_WINDOW_MS = 60000;
       liveBuyPressureScore = null; // reset khi đổi mã coin
+      // ===== CẢNH BÁO SỚM BÙNG NỔ DÒNG LỆNH (aggTrade) =====
+      // aggTrade là dữ liệu NHANH NHẤT có thể lấy được (từng lệnh khớp thật), nhanh hơn hẳn kline vì kline
+      // volume chỉ được đọc lại mỗi 1.2s (throttle) và vẫn phải chờ tích lũy đủ. Ở đây so sánh TỐC ĐỘ dòng
+      // tiền trong cửa sổ ngắn (7s gần nhất) với tốc độ nền của 53s trước đó (phần còn lại của cửa sổ 60s
+      // liveTradeBuf sẵn có) — nếu tốc độ vọt lên gấp nhiều lần VÀ lệch hẳn về một phía (mua hoặc bán), bắn
+      // cảnh báo "SỚM" ngay lập tức. Đây chỉ là tín hiệu CẢNH BÁO tham khảo để cân nhắc vào sớm hơn bằng tay —
+      // KHÔNG thay thế tín hiệu MOMENTUM chính thức (vẫn cần chờ AI xác nhận đủ điều kiện nến/RSI/range).
+      let lastBurstWarnTs = 0;
+      const BURST_SHORT_WINDOW_MS = 7000;    // cửa sổ "đang diễn ra" để đo tốc độ đột biến
+      const BURST_MIN_TRADES = 6;            // tối thiểu vài lệnh mới đủ tin cậy, tránh nhiễu vì 1-2 lệnh lẻ
+      const BURST_RATIO = 3.2;               // tốc độ ngắn hạn phải gấp >= 3.2 lần tốc độ nền mới coi là "bùng nổ"
+      const BURST_SKEW = 0.66;               // >=66% nghiêng hẳn về mua hoặc bán mới tính là có hướng rõ ràng
+      const BURST_COOLDOWN_MS = 45000;       // tránh spam cảnh báo liên tục trong cùng 1 đợt bùng nổ
       whaleWS.onmessage = (event) => {
         const d = JSON.parse(event.data);
         const p = parseFloat(d.p); const q = parseFloat(d.q); const isBuy = !d.m; const usd = p * q;
@@ -3105,6 +3968,26 @@
           liveTradeBuf.forEach(tr => { totalUsd += tr.usd; if (tr.isBuy) buyUsd += tr.usd; });
           liveBuyPressureScore = totalUsd > 0 ? (buyUsd / totalUsd) * 100 : 50;
           refreshGaugeDisplay();
+        }
+
+        if (now - lastBurstWarnTs > BURST_COOLDOWN_MS) {
+          const shortBuf = liveTradeBuf.filter(tr => now - tr.t <= BURST_SHORT_WINDOW_MS);
+          if (shortBuf.length >= BURST_MIN_TRADES) {
+            const baselineBuf = liveTradeBuf.filter(tr => now - tr.t > BURST_SHORT_WINDOW_MS);
+            const baselineSpanMs = baselineBuf.length ? Math.max(5000, now - baselineBuf[0].t) : 0;
+            if (baselineSpanMs > 0) {
+              const baselineUsd = baselineBuf.reduce((s, tr) => s + tr.usd, 0);
+              const baselineRate = baselineUsd / (baselineSpanMs / 1000);
+              const shortUsd = shortBuf.reduce((s, tr) => s + tr.usd, 0);
+              const shortRate = shortUsd / (BURST_SHORT_WINDOW_MS / 1000);
+              const buyUsd = shortBuf.reduce((s, tr) => s + (tr.isBuy ? tr.usd : 0), 0);
+              const buySkew = shortUsd > 0 ? buyUsd / shortUsd : 0.5;
+              if (baselineRate > 0 && shortRate > baselineRate * BURST_RATIO && (buySkew >= BURST_SKEW || buySkew <= 1 - BURST_SKEW)) {
+                lastBurstWarnTs = now;
+                showBurstWarning(buySkew >= BURST_SKEW, shortRate / baselineRate, shortUsd, p);
+              }
+            }
+          }
         }
       };
 
