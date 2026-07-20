@@ -4323,7 +4323,7 @@
       unemployment: { code: 'SL.UEM.TOTL.ZS', title: 'Bản đồ thất nghiệp toàn cầu', tab: 'Thất nghiệp', unit: '%', breaks: [4, 7, 10, 15, 20], goodDirection: 'low' }
     };
 
-    const state = { current: 'inflation', cache: {}, world: null, ready: false, hoverId: null, tooltipTimer: null, pickBroken: false };
+    const state = { current: 'inflation', cache: {}, world: null, ready: false, hoverId: null, tooltipTimer: null, pickBroken: false, vnHover: false };
 
     // ===================================================================================
     // BẢNG TRA CỨU CỜ QUỐC GIA — ánh xạ mã ISO 3166-1 alpha-3 (mã "id" mà mỗi feature trong
@@ -4380,12 +4380,44 @@
         + 'onerror="this.style.display=\'none\'">';
     }
 
-    const VN_ISLAND_MARKERS = [
-      { name: 'Quần đảo Hoàng Sa', lon: 112.338, lat: 16.834 },
-      { name: 'Quần đảo Trường Sa', lon: 111.923, lat: 8.645 }
+    // Danh sách các đảo/thực thể có thật thuộc từng quần đảo (toạ độ gần đúng theo bản đồ thực
+    // tế) — dùng để dựng CỤM nhiều điểm đánh dấu bao trọn phạm vi thật của từng quần đảo, thay
+    // vì chỉ 1 chấm duy nhất, cho sát với hình dạng/phạm vi trải dài thật trên bản đồ hơn.
+    const VN_ISLAND_GROUPS = [
+      {
+        key: 'hoangsa', name: 'Quần đảo Hoàng Sa', color: 0xFFCD00,
+        islands: [
+          { name: 'Đảo Phú Lâm', lon: 112.3385, lat: 16.8345 },
+          { name: 'Đảo Hoàng Sa', lon: 111.6144, lat: 16.8319 },
+          { name: 'Đảo Quang Hoà', lon: 111.6106, lat: 16.4467 },
+          { name: 'Đảo Duy Mộng', lon: 111.7011, lat: 16.4672 },
+          { name: 'Đảo Quang Ảnh', lon: 111.6172, lat: 16.4433 },
+          { name: 'Đảo Cây', lon: 112.3067, lat: 16.9908 },
+          { name: 'Đá Bắc', lon: 111.6242, lat: 17.1058 },
+          { name: 'Đảo Tri Tôn', lon: 111.1997, lat: 15.7836 }
+        ]
+      },
+      {
+        key: 'truongsa', name: 'Quần đảo Trường Sa', color: 0xDA251D,
+        islands: [
+          { name: 'Đảo Trường Sa Lớn', lon: 111.9200, lat: 8.6450 },
+          { name: 'Đảo Song Tử Tây', lon: 114.3283, lat: 11.4297 },
+          { name: 'Đảo Sinh Tồn', lon: 114.3339, lat: 9.8814 },
+          { name: 'Đảo Nam Yết', lon: 114.3672, lat: 10.1811 },
+          { name: 'Đảo Sơn Ca', lon: 114.4694, lat: 10.3789 },
+          { name: 'Đảo Sinh Tồn Đông', lon: 114.4181, lat: 9.8867 },
+          { name: 'Đảo Phan Vinh', lon: 113.9678, lat: 8.9678 },
+          { name: 'Đảo An Bang', lon: 112.9078, lat: 7.8858 },
+          { name: 'Bãi Thuyền Chài', lon: 113.2500, lat: 8.1167 },
+          { name: 'Đá Tây', lon: 112.2333, lat: 8.8500 }
+        ]
+      }
     ];
     const VN_FLAG_RED = 0xDA251D;
     const VN_FLAG_YELLOW = 0xFFCD00;
+    // Danh sách các mảng để lưu tham chiếu tới các "vầng hào quang" (halo) của từng đảo, dùng để
+    // làm chúng sáng/nhấp nháy đồng loạt mỗi khi người dùng rê chuột vào lãnh thổ Việt Nam.
+    let islandHaloMeshes = [];
 
     function setStatus(msg, isError) {
       if (!statusEl) return;
@@ -4629,7 +4661,44 @@
           octx.stroke();
         }
       }
+      if (state.vnHover) drawIslandHighlights();
       if (overlayTexture) overlayTexture.needsUpdate = true;
+    }
+
+    // Vẽ khoanh vùng (đường viền đứt nét) + tên quần đảo lên lớp overlay 2D, bao quanh đúng phạm
+    // vi kinh/vĩ độ thật của từng cụm đảo — chỉ hiện khi đang hover vào lãnh thổ Việt Nam, để
+    // người xem thấy ngay Hoàng Sa & Trường Sa "cùng sáng lên" với đất liền Việt Nam.
+    function drawIslandHighlights() {
+      VN_ISLAND_GROUPS.forEach(group => {
+        const lons = group.islands.map(i => i.lon), lats = group.islands.map(i => i.lat);
+        const cLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+        const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const center = overlayProjection([cLon, cLat]);
+        if (!center) return;
+        const [x, y] = center;
+        const spanLon = Math.max(1.4, Math.max(...lons) - Math.min(...lons));
+        const spanLat = Math.max(1.4, Math.max(...lats) - Math.min(...lats));
+        const rx = Math.max(24, spanLon * (OVERLAY_W / 360) * 0.75 + 20);
+        const ry = Math.max(18, spanLat * (OVERLAY_H / 180) * 0.95 + 16);
+        const colorHex = '#' + group.color.toString(16).padStart(6, '0');
+
+        octx.save();
+        octx.beginPath();
+        octx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+        octx.lineWidth = 2.2;
+        octx.setLineDash([7, 5]);
+        octx.strokeStyle = colorHex;
+        octx.stroke();
+        octx.setLineDash([]);
+
+        octx.font = '700 22px Sora, sans-serif';
+        octx.textAlign = 'center';
+        octx.shadowColor = 'rgba(0,0,0,0.85)';
+        octx.shadowBlur = 6;
+        octx.fillStyle = '#ffffff';
+        octx.fillText(group.name, x, Math.max(24, y - ry - 12));
+        octx.restore();
+      });
     }
 
     async function switchIndicator(key) {
@@ -4685,29 +4754,127 @@
       });
       return new THREE.Mesh(atmoGeo, atmoMat);
     }
-    function buildStarfield() {
-      const starCount = 700;
-      const positions = new Float32Array(starCount * 3);
-      for (let i = 0; i < starCount; i++) {
-        const r = 40 + Math.random() * 20;
+    // Texture hình tròn mờ dần (soft glow) dùng cho các ngôi sao thường — vẽ 1 lần bằng canvas
+    // 2D rồi dùng làm "map" cho PointsMaterial, thay vì chấm vuông cứng mặc định của WebGL.
+    function buildCircleGlowTexture(sizePx) {
+      const c = document.createElement('canvas');
+      c.width = c.height = sizePx;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(sizePx / 2, sizePx / 2, 0, sizePx / 2, sizePx / 2, sizePx / 2);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.4, 'rgba(255,255,255,0.7)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, sizePx, sizePx);
+      return new THREE.CanvasTexture(c);
+    }
+
+    // Texture ngôi sao "lấp lánh 4 cánh" (giống ảnh tham chiếu) cho một số ít ngôi sao to, sáng
+    // nổi bật giữa nền — vẽ bằng canvas: 1 quầng sáng tròn + 2 vệt sáng bắt chéo nhau.
+    function buildSparkleTexture(sizePx) {
+      const c = document.createElement('canvas');
+      c.width = c.height = sizePx;
+      const ctx = c.getContext('2d');
+      const cx = sizePx / 2, cy = sizePx / 2;
+      const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, sizePx * 0.5);
+      glow.addColorStop(0, 'rgba(255,255,255,1)');
+      glow.addColorStop(0.3, 'rgba(255,255,255,0.5)');
+      glow.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(cx, cy, sizePx * 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = sizePx * 0.03;
+      [0, Math.PI / 2].forEach(rot => {
+        ctx.save();
+        ctx.translate(cx, cy); ctx.rotate(rot);
+        ctx.beginPath();
+        ctx.moveTo(-sizePx * 0.47, 0); ctx.lineTo(sizePx * 0.47, 0);
+        ctx.stroke();
+        ctx.restore();
+      });
+      return new THREE.CanvasTexture(c);
+    }
+
+    // Dựng 1 lớp điểm sao rải ngẫu nhiên trên mặt cầu bán kính [radiusMin, radiusMax], mỗi ngôi
+    // sao có màu hơi ngả (trắng/xanh dương/vàng nhạt/tím nhạt) để trông tự nhiên như ảnh chụp
+    // thiên văn thật, thay vì toàn bộ cùng 1 màu trắng đơn điệu như trước.
+    function buildStarLayer(count, radiusMin, radiusMax, size, texture, opacity) {
+      const positions = new Float32Array(count * 3);
+      const colors = new Float32Array(count * 3);
+      const palette = [[1, 1, 1], [0.75, 0.85, 1], [1, 0.93, 0.78], [0.85, 0.78, 1], [0.7, 0.95, 1]];
+      for (let i = 0; i < count; i++) {
+        const r = radiusMin + Math.random() * (radiusMax - radiusMin);
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos((Math.random() * 2) - 1);
         positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
         positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
         positions[i * 3 + 2] = r * Math.cos(phi);
+        const col = palette[Math.floor(Math.random() * palette.length)];
+        const b = 0.6 + Math.random() * 0.4;
+        colors[i * 3] = col[0] * b; colors[i * 3 + 1] = col[1] * b; colors[i * 3 + 2] = col[2] * b;
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.16, sizeAttenuation: true, transparent: true, opacity: 0.75 });
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const mat = new THREE.PointsMaterial({
+        size, sizeAttenuation: true, vertexColors: true, map: texture,
+        transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending
+      });
       return new THREE.Points(geo, mat);
     }
+
+    // (Hàm dựng tinh vân 3D riêng cho khung quả cầu đã được bỏ — xem ghi chú tại buildStarfield()
+    // bên dưới: giờ dùng chung 1 nền vũ trụ 2D duy nhất cho toàn khối để tránh 2 nền đá nhau.)
+
+    // GHI CHÚ: không dựng thêm 1 lớp "tinh vân" 3D riêng bên trong khung quả cầu nữa — trước đây
+    // làm vậy khiến khung quả cầu (hình vuông) có tông nền khác hẳn với nền vũ trụ 2D bao quanh
+    // toàn khối "NỀN KINH TẾ" (xem initEconSpaceBackground bên dưới file), tạo cảm giác "2 nền
+    // đá nhau" ở viền khung. Canvas WebGL này được tạo với alpha:true nên những chỗ không có
+    // ngôi sao/quả cầu sẽ TRONG SUỐT, để lộ đúng nền vũ trụ 2D phía sau — nhờ vậy cả khối liền
+    // thành 1 nền vũ trụ duy nhất, không còn viền hình vuông lộ liễu.
+    function buildStarfield() {
+      const group = new THREE.Group();
+      group.add(buildStarLayer(500, 30, 78, 0.22, buildCircleGlowTexture(64), 0.85));
+      group.add(buildStarLayer(18, 30, 72, 0.9, buildSparkleTexture(128), 0.9));
+      return group;
+    }
     function addIslandMarkers(parent) {
-      VN_ISLAND_MARKERS.forEach((m, i) => {
-        const pos = latLonToVec3(m.lat, m.lon, 1.02);
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.015, 12, 12), new THREE.MeshBasicMaterial({ color: i === 0 ? VN_FLAG_YELLOW : VN_FLAG_RED }));
-        dot.position.copy(pos);
-        dot.name = m.name;
-        parent.add(dot);
+      islandHaloMeshes = [];
+      const glowTex = buildCircleGlowTexture(64);
+      VN_ISLAND_GROUPS.forEach(group => {
+        const groupObj = new THREE.Group();
+        groupObj.name = group.key;
+        group.islands.forEach(isl => {
+          const pos = latLonToVec3(isl.lat, isl.lon, 1.01);
+
+          // Chấm đánh dấu chính — dùng Sprite (luôn quay mặt về camera) với texture tròn mờ dần
+          // ở viền thay vì khối cầu đặc, để dù các đảo nằm khá gần nhau trên bản đồ thật, chúng
+          // vẫn hiện ra như từng ĐỐM SÁNG riêng biệt — không bị dính liền thành một khối/dải đất.
+          const dotMat = new THREE.SpriteMaterial({
+            map: glowTex, color: group.color, transparent: true,
+            depthWrite: false, sizeAttenuation: true
+          });
+          const dot = new THREE.Sprite(dotMat);
+          dot.position.copy(pos);
+          dot.scale.set(0.014, 0.014, 1);
+          dot.name = isl.name;
+          groupObj.add(dot);
+
+          // "Vầng sáng" quanh mỗi đảo — vô hình lúc bình thường (opacity 0), chỉ mờ sáng lên khi
+          // người dùng rê chuột vào lãnh thổ Việt Nam. Cố tình giữ kích thước NHỎ + blending cộng
+          // (Additive) thay vì tô đặc, để dù nhiều đảo ở gần nhau, hiệu ứng vẫn là các đốm sáng
+          // chồng ánh sáng lên nhau (như đèn nhấp nháy) chứ không tạo thành một mảng màu đặc.
+          const haloMat = new THREE.SpriteMaterial({
+            map: glowTex, color: group.color, transparent: true, opacity: 0,
+            depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+          });
+          const halo = new THREE.Sprite(haloMat);
+          halo.position.copy(pos);
+          halo.scale.set(0.02, 0.02, 1);
+          groupObj.add(halo);
+          islandHaloMeshes.push(halo);
+        });
+        parent.add(groupObj);
       });
     }
 
@@ -4765,11 +4932,16 @@
         }
         if (f) {
           if (state.hoverId !== f.id) { state.hoverId = f.id; drawOverlay(); }
-          const name = (f.properties && f.properties.name) || f.id;
+          // Việt Nam trong bộ dữ liệu biên giới dùng mã ISO3 "VNM" — hễ đang hover đúng nước này,
+          // cùng lúc làm nổi bật cả Hoàng Sa & Trường Sa (xem drawIslandHighlights + animate()).
+          state.vnHover = (f.id === 'VNM');
+          const baseName = (f.properties && f.properties.name) || f.id;
+          const name = state.vnHover ? baseName + ' · gồm Hoàng Sa & Trường Sa' : baseName;
           showTooltip(clientX, clientY, name, dataMap[f.id], cfg, f.id);
           updateLegendHover(cfg, name, dataMap[f.id], f.id);
         } else {
           if (state.hoverId != null) { state.hoverId = null; drawOverlay(); }
+          state.vnHover = false;
           hideTooltip(); resetLegendHover();
         }
       } catch (err) {
@@ -4781,21 +4953,63 @@
       }
     }
 
+    // --- Zoom quả cầu: cuộn chuột (desktop), chụm 2 ngón (cảm ứng), và 3 nút +/−/reset. Thay vì
+    // gán thẳng camera.position.z (gây giật/nhảy khung hình), mọi thao tác chỉ cập nhật một biến
+    // "targetZoom" — khoảng cách camera THỰC SỰ sẽ trôi mượt dần tới đó mỗi khung hình trong
+    // animate() (xem easing bên dưới), cho cảm giác phóng to/thu nhỏ mượt như các app bản đồ thật.
+    const ZOOM_MIN = 1.35, ZOOM_MAX = 4.6, ZOOM_DEFAULT = 2.7;
+    let targetZoom = ZOOM_DEFAULT;
+    function setTargetZoom(z) {
+      targetZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    }
+
     function bindPointerInteraction() {
       let dragging = false, moved = false, prevX = 0, prevY = 0;
       const k = 0.006;
       canvasEl.style.touchAction = 'none';
 
+      // Theo dõi mọi ngón tay đang chạm để nhận diện cử chỉ chụm 2 ngón (pinch-to-zoom), tách
+      // biệt hẳn với thao tác xoay 1 ngón/1 chuột ở trên.
+      const activePointers = new Map();
+      let pinchStartDist = null, pinchStartZoom = null;
+
+      function pinchDistance() {
+        const pts = Array.from(activePointers.values());
+        if (pts.length < 2) return null;
+        return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      }
+
       canvasEl.addEventListener('pointerdown', (e) => {
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try { canvasEl.setPointerCapture(e.pointerId); } catch (err) {}
+
+        if (activePointers.size >= 2) {
+          dragging = false;
+          pinchStartDist = pinchDistance();
+          pinchStartZoom = targetZoom;
+          autoRotate = false;
+          clearTimeout(autoRotateResumeT);
+          hideTooltip();
+          return;
+        }
         dragging = true; moved = false;
         autoRotate = false;
         clearTimeout(autoRotateResumeT);
         prevX = e.clientX; prevY = e.clientY;
         canvasEl.classList.add('grabbing');
-        try { canvasEl.setPointerCapture(e.pointerId); } catch (err) {}
       });
 
       canvasEl.addEventListener('pointermove', (e) => {
+        if (activePointers.has(e.pointerId)) activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (activePointers.size >= 2) {
+          const dist = pinchDistance();
+          if (dist && pinchStartDist) {
+            setTargetZoom(pinchStartZoom * (pinchStartDist / dist));
+          }
+          hideTooltip();
+          return;
+        }
         if (dragging) {
           const dx = e.clientX - prevX, dy = e.clientY - prevY;
           if (Math.abs(dx) > 1 || Math.abs(dy) > 1) moved = true;
@@ -4812,6 +5026,8 @@
       });
 
       const endDrag = (e) => {
+        if (e) activePointers.delete(e.pointerId);
+        if (activePointers.size < 2) { pinchStartDist = null; pinchStartZoom = null; }
         if (!dragging) return;
         dragging = false;
         canvasEl.classList.remove('grabbing');
@@ -4824,7 +5040,7 @@
 
       canvasEl.addEventListener('pointerleave', () => {
         if (dragging) return;
-        state.hoverId = null; drawOverlay();
+        state.hoverId = null; state.vnHover = false; drawOverlay();
         hideTooltip(); resetLegendHover();
         scheduleAutoRotateResume();
       });
@@ -4832,6 +5048,30 @@
         clearTimeout(autoRotateResumeT);
         autoRotate = false;
       });
+
+      // Cuộn chuột để phóng to/thu nhỏ — nhân theo khoảng cách MỤC TIÊU hiện tại (không phải vị
+      // trí camera thực đang trôi dở) để tốc độ zoom cảm giác đều nhau và không bị giật khi cuộn
+      // liên tục nhiều lần trước khi easing kịp bắt kịp.
+      canvasEl.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        autoRotate = false;
+        clearTimeout(autoRotateResumeT);
+        setTargetZoom(targetZoom + e.deltaY * 0.0016 * targetZoom);
+        scheduleAutoRotateResume();
+      }, { passive: false });
+
+      function stepZoom(factor) {
+        autoRotate = false;
+        clearTimeout(autoRotateResumeT);
+        setTargetZoom(targetZoom * factor);
+        scheduleAutoRotateResume();
+      }
+      const zoomInBtn = document.getElementById('econ-zoom-in');
+      const zoomOutBtn = document.getElementById('econ-zoom-out');
+      const zoomResetBtn = document.getElementById('econ-zoom-reset');
+      if (zoomInBtn) zoomInBtn.addEventListener('click', () => stepZoom(0.78));
+      if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => stepZoom(1 / 0.78));
+      if (zoomResetBtn) zoomResetBtn.addEventListener('click', () => setTargetZoom(ZOOM_DEFAULT));
     }
 
     // Vẫn cần sửa vài polygon có thứ tự đỉnh (winding order) bị đảo ngược trong bộ GeoJSON nguồn
@@ -4874,7 +5114,7 @@
 
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-        camera.position.set(0, 0, 2.7);
+        camera.position.set(0, 0, ZOOM_DEFAULT);
 
         scene.add(buildStarfield());
         scene.add(new THREE.AmbientLight(0x445066, 1.15));
@@ -4920,9 +5160,30 @@
         onResize();
         window.addEventListener('resize', onResize);
 
+        let vnHoverT = 0; // hệ số làm mượt 0..1, tiến dần tới trạng thái đang/không hover Việt Nam
         function animate() {
           requestAnimationFrame(animate);
           if (autoRotate) earthGroup.rotation.y += AUTO_ROTATE_SPEED;
+
+          // Zoom mượt: camera trôi dần tới targetZoom mỗi khung hình thay vì nhảy tức thì — hệ số
+          // 0.14 cho cảm giác "trớn" nhẹ giống các app bản đồ/globe chuyên nghiệp.
+          camera.position.z += (targetZoom - camera.position.z) * 0.14;
+
+          // Khi con trỏ đang ở trên lãnh thổ Việt Nam, làm 2 quần đảo cùng "sáng lên" và nhấp
+          // nháy nhẹ nhàng để người xem thấy ngay chúng thuộc về Việt Nam — tắt dần khi rời chuột.
+          const target = state.vnHover ? 1 : 0;
+          vnHoverT += (target - vnHoverT) * 0.12;
+          if (vnHoverT > 0.002) {
+            const pulse = 0.6 + Math.sin(performance.now() * 0.006) * 0.4;
+            islandHaloMeshes.forEach(h => {
+              h.material.opacity = 0.55 * vnHoverT;
+              const s = 0.02 * (1 + pulse * 0.5 * vnHoverT);
+              h.scale.set(s, s, 1);
+            });
+          } else if (islandHaloMeshes.length) {
+            islandHaloMeshes.forEach(h => { h.material.opacity = 0; h.scale.set(0.02, 0.02, 1); });
+          }
+
           renderer.render(scene, camera);
         }
         animate();
@@ -4949,4 +5210,95 @@
       }
     })();
   })();
+
+  // ===================================================================================
+  // SECTION: NỀN VŨ TRỤ BAO TRÙM TOÀN BỘ KHỐI "NỀN KINH TẾ" — vẽ bằng canvas 2D thường (không
+  // phải WebGL) nên chạy nhẹ, phủ kín toàn bộ .econ-section (kể cả phần tiêu đề, chú giải, nguồn
+  // dữ liệu...), không chỉ riêng khung quả cầu nhỏ ở giữa — cho cảm giác "cả khối kinh tế đang
+  // trôi giữa vũ trụ" giống ảnh tham khảo, thay vì vũ trụ chỉ bó gọn trong 1 ô vuông nhỏ.
+  // ===================================================================================
+  (function initEconSpaceBackground() {
+    const canvasEl = document.getElementById('econ-space-bg');
+    const sectionEl = document.getElementById('econ-section');
+    if (!canvasEl || !sectionEl) return;
+    const ctx = canvasEl.getContext('2d');
+    let drawTimer = null;
+
+    function draw() {
+      const w = sectionEl.clientWidth, h = sectionEl.clientHeight;
+      if (!w || !h) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvasEl.width = w * dpr; canvasEl.height = h * dpr;
+      canvasEl.style.width = w + 'px'; canvasEl.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      // Nền đen ánh xanh đậm, giống màu trời đêm sâu trong ảnh tham khảo.
+      const bgGrad = ctx.createRadialGradient(w * 0.5, h * 0.35, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.85);
+      bgGrad.addColorStop(0, '#0c1420');
+      bgGrad.addColorStop(1, '#05070c');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Vài quầng tinh vân mờ, chồng bằng chế độ 'lighter' để ánh sáng cộng dồn tự nhiên.
+      ctx.globalCompositeOperation = 'lighter';
+      const blobs = [
+        { x: w * 0.12, y: h * 0.2, r: Math.max(w, h) * 0.45, color: 'rgba(45,95,165,0.30)' },
+        { x: w * 0.85, y: h * 0.75, r: Math.max(w, h) * 0.4, color: 'rgba(45,140,120,0.24)' },
+        { x: w * 0.7, y: h * 0.12, r: Math.max(w, h) * 0.35, color: 'rgba(120,80,180,0.22)' },
+        { x: w * 0.25, y: h * 0.85, r: Math.max(w, h) * 0.32, color: 'rgba(80,60,150,0.18)' }
+      ];
+      blobs.forEach(b => {
+        const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        g.addColorStop(0, b.color);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      });
+      ctx.globalCompositeOperation = 'source-over';
+
+      // Rắc các ngôi sao nhỏ (đa số) + 1 ít ngôi sao to lấp lánh 4 cánh (như ảnh tham khảo).
+      const starCount = Math.round((w * h) / 1400);
+      for (let i = 0; i < starCount; i++) {
+        const x = Math.random() * w, y = Math.random() * h;
+        const r = Math.random() * 1.1 + 0.25;
+        const alpha = 0.25 + Math.random() * 0.65;
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(2) + ')';
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const bigStarCount = Math.max(6, Math.round((w * h) / 90000));
+      for (let i = 0; i < bigStarCount; i++) {
+        const x = Math.random() * w, y = Math.random() * h;
+        const s = 3.5 + Math.random() * 4.5;
+        const hue = ['#ffffff', '#dce6ff', '#ffe9c6', '#e6d6ff'][Math.floor(Math.random() * 4)];
+        ctx.save();
+        ctx.translate(x, y);
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, s * 2.4);
+        glow.addColorStop(0, hue);
+        glow.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(0, 0, s * 2.4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = hue;
+        ctx.lineWidth = Math.max(0.6, s * 0.14);
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath(); ctx.moveTo(-s * 2.6, 0); ctx.lineTo(s * 2.6, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -s * 2.6); ctx.lineTo(0, s * 2.6); ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function scheduleDraw() {
+      clearTimeout(drawTimer);
+      drawTimer = setTimeout(draw, 120);
+    }
+
+    scheduleDraw();
+    window.addEventListener('resize', scheduleDraw);
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(scheduleDraw).observe(sectionEl);
+    }
+  })();
+
   updateChart();
