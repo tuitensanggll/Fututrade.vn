@@ -499,15 +499,21 @@
   .resizer::after{ content:''; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:40px; height:2px; background:var(--text-dim); border-radius:2px; }
 
   /* ============ SECTION: BẢN ĐỒ KINH TẾ TOÀN CẦU (dữ liệu thật từ World Bank) ============ */
-  .econ-section{ margin-top:18px; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:22px 24px 24px; }
+  .econ-section{ position:relative; margin-top:18px; background:#070a10; border:1px solid var(--border); border-radius:16px; padding:22px 24px 24px; overflow:hidden; isolation:isolate; }
+  .econ-space-bg{ position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; display:block; }
+  .econ-header, .econ-map-wrap, .econ-legend-wrap, .econ-source{ position:relative; z-index:1; }
   .econ-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
   .econ-eyebrow{ font-family:'JetBrains Mono', monospace; font-size:10.5px; font-weight:700; letter-spacing:1.6px; color:var(--gold); margin-bottom:4px; }
   .econ-title{ font-family:'Sora', sans-serif; font-weight:700; font-size:18px; color:var(--text); }
   .econ-tabs{ flex-wrap:wrap; }
 
-  .econ-map-wrap{ position:relative; width:100%; max-width:620px; aspect-ratio:1/1; margin:0 auto; background:radial-gradient(900px 380px at 50% 15%, #0f1520, transparent 70%), var(--bg); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 24px 50px -20px #000a; }
+  .econ-map-wrap{ position:relative; width:100%; max-width:620px; aspect-ratio:1/1; margin:0 auto; background:transparent; border:none; border-radius:12px; overflow:hidden; }
   .econ-map-svg{ display:block; width:100%; height:100%; aspect-ratio:1/1; cursor:grab; touch-action:none; }
   .econ-map-svg.grabbing{ cursor:grabbing; }
+  .econ-zoom-controls{ position:absolute; right:12px; bottom:12px; display:flex; flex-direction:column; gap:6px; z-index:5; }
+  .econ-zoom-controls button{ width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:#0a0d13cc; border:1px solid var(--border); color:var(--text); border-radius:8px; font-size:15px; font-weight:700; line-height:1; cursor:pointer; backdrop-filter:blur(4px); transition:background .15s ease, border-color .15s ease, transform .1s ease; }
+  .econ-zoom-controls button:hover{ background:#171c26f2; border-color:#3a4356; }
+  .econ-zoom-controls button:active{ transform:scale(.92); }
   .econ-star-field{ pointer-events:none; }
   .econ-globe-atmosphere{ pointer-events:none; }
   .econ-globe-body{ pointer-events:auto; }
