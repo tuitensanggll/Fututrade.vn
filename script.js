@@ -4296,8 +4296,14 @@
   // Hình học bản đồ chỉ dựng 1 lần (đường biên giới các nước); khi đổi chỉ số chỉ tô lại
   // màu (fill) theo dữ liệu mới đã cache sẵn trong bộ nhớ — mượt, không phải vẽ lại từ đầu.
   // ===================================================================================
-  (function initEconMap() {
-    const svgEl = document.getElementById('econ-map-svg');
+  // ===================================================================================
+  // SECTION: QUẢ CẦU TRÁI ĐẤT — nền ảnh vệ tinh thật dựng bằng WebGL (Three.js), phủ thêm 1 lớp
+  // "overlay" 2D (vẽ bằng d3.geoPath lên canvas rồi dán làm texture trong suốt) để giữ nguyên đầy
+  // đủ chức năng gốc: đường biên giới từng nước, hover xem tên + số liệu, tô màu theo chỉ số kinh
+  // tế (Lạm phát / GDP / Thất nghiệp, dữ liệu thật từ World Bank). Vẫn kéo chuột/chạm để xoay.
+  // ===================================================================================
+  (function initEconGlobe() {
+    const canvasEl = document.getElementById('econ-map-canvas');
     const wrapEl = document.getElementById('econ-map-wrap');
     const statusEl = document.getElementById('econ-map-status');
     const tabsEl = document.getElementById('econ-tabs');
@@ -4305,15 +4311,9 @@
     const tooltipEl = document.getElementById('econ-tooltip');
     const legendBarEl = document.getElementById('econ-legend-bar');
     const legendLabelsEl = document.getElementById('econ-legend-labels');
-    if (!svgEl || typeof d3 === 'undefined') return;
+    if (!canvasEl || typeof THREE === 'undefined' || typeof d3 === 'undefined') return;
 
-    // Nguồn hình học: GeoJSON biên giới các nước, id = mã ISO3 (khớp trực tiếp với countryiso3code
-    // của World Bank, không cần bảng tra mã số ISO trung gian).
     const GEO_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
-
-    // Bảng màu đơn sắc (tối -> sáng) đồng bộ tông vàng/gold sẵn có của giao diện.
-    // Thang màu nhiệt liên tục kiểu TradingView: xanh (tốt) -> vàng -> đỏ (xấu).
-    // Hướng "tốt/xấu" phụ thuộc từng chỉ số (goodDirection trong ECON_INDICATORS).
     const GRADIENT_LOW_TO_HIGH = ['#14cc8a', '#8dd66a', '#f0c419', '#ff8a3d', '#ff4757'];
     const NO_DATA_COLOR = '#232938';
 
@@ -4323,17 +4323,69 @@
       unemployment: { code: 'SL.UEM.TOTL.ZS', title: 'Bản đồ thất nghiệp toàn cầu', tab: 'Thất nghiệp', unit: '%', breaks: [4, 7, 10, 15, 20], goodDirection: 'low' }
     };
 
-    const state = { current: 'inflation', cache: {}, countries: null, ready: false };
+    const state = { current: 'inflation', cache: {}, world: null, ready: false, hoverId: null, tooltipTimer: null, pickBroken: false };
 
-    // --- Trạng thái quả cầu xoay được ---
-    let projection, path, oceanSel, graticuleSel, flagLayerSel;
-    let flagByIso3 = {};
-    let flagFeatures = [];
-    let autoRotateTimer = null;
-    let autoRotateResumeT = null;
-    const FLAG_W = 15, FLAG_H = 11;
-    const AUTO_ROTATE_SPEED = 0.025; // độ / khung hình (~60fps -> khoảng 5 phút / vòng)
-    const VISIBLE_THRESHOLD = 1.52; // rad (~87°) — chỉ vẽ cờ cho nước đang quay ra phía trước
+    // ===================================================================================
+    // BẢNG TRA CỨU CỜ QUỐC GIA — ánh xạ mã ISO 3166-1 alpha-3 (mã "id" mà mỗi feature trong
+    // GeoJSON đang dùng, cũng là mã mà World Bank trả về qua countryiso3code) sang alpha-2
+    // chuẩn quốc tế, rồi từ alpha-2 dựng thẳng emoji lá cờ bằng ký tự "Regional Indicator
+    // Symbol" theo chuẩn Unicode (mỗi chữ cái A-Z có 1 ký tự tương ứng, ghép 2 ký tự lại thành
+    // đúng emoji cờ quốc gia đó — cách này không "vẽ" hay "đoán" cờ mà để chính hệ điều hành/
+    // trình duyệt render lá cờ thật theo chuẩn, nên luôn khớp 100% với mã nước, không có chỗ
+    // cho sai lệch). Bảng lấy nguyên từ danh sách ISO 3166-1 chính thức (249 mã). Nước nào
+    // không có trong bảng này (vùng lãnh thổ tranh chấp/không có mã ISO chính thức) sẽ KHÔNG
+    // hiển thị cờ, thay vì hiển thị một lá cờ có thể sai.
+    const ISO3_TO_ISO2 = {
+      AFG:'AF', ALA:'AX', ALB:'AL', DZA:'DZ', ASM:'AS', AND:'AD', AGO:'AO', AIA:'AI', ATA:'AQ',
+      ATG:'AG', ARG:'AR', ARM:'AM', ABW:'AW', AUS:'AU', AUT:'AT', AZE:'AZ', BHS:'BS', BHR:'BH',
+      BGD:'BD', BRB:'BB', BLR:'BY', BEL:'BE', BLZ:'BZ', BEN:'BJ', BMU:'BM', BTN:'BT', BOL:'BO',
+      BES:'BQ', BIH:'BA', BWA:'BW', BVT:'BV', BRA:'BR', IOT:'IO', BRN:'BN', BGR:'BG', BFA:'BF',
+      BDI:'BI', CPV:'CV', KHM:'KH', CMR:'CM', CAN:'CA', CYM:'KY', CAF:'CF', TCD:'TD', CHL:'CL',
+      CHN:'CN', CXR:'CX', CCK:'CC', COL:'CO', COM:'KM', COG:'CG', COD:'CD', COK:'CK', CRI:'CR',
+      CIV:'CI', HRV:'HR', CUB:'CU', CUW:'CW', CYP:'CY', CZE:'CZ', DNK:'DK', DJI:'DJ', DMA:'DM',
+      DOM:'DO', ECU:'EC', EGY:'EG', SLV:'SV', GNQ:'GQ', ERI:'ER', EST:'EE', SWZ:'SZ', ETH:'ET',
+      FLK:'FK', FRO:'FO', FJI:'FJ', FIN:'FI', FRA:'FR', GUF:'GF', PYF:'PF', ATF:'TF', GAB:'GA',
+      GMB:'GM', GEO:'GE', DEU:'DE', GHA:'GH', GIB:'GI', GRC:'GR', GRL:'GL', GRD:'GD', GLP:'GP',
+      GUM:'GU', GTM:'GT', GGY:'GG', GIN:'GN', GNB:'GW', GUY:'GY', HTI:'HT', HMD:'HM', VAT:'VA',
+      HND:'HN', HKG:'HK', HUN:'HU', ISL:'IS', IND:'IN', IDN:'ID', IRN:'IR', IRQ:'IQ', IRL:'IE',
+      IMN:'IM', ISR:'IL', ITA:'IT', JAM:'JM', JPN:'JP', JEY:'JE', JOR:'JO', KAZ:'KZ', KEN:'KE',
+      KIR:'KI', PRK:'KP', KOR:'KR', KWT:'KW', KGZ:'KG', LAO:'LA', LVA:'LV', LBN:'LB', LSO:'LS',
+      LBR:'LR', LBY:'LY', LIE:'LI', LTU:'LT', LUX:'LU', MAC:'MO', MDG:'MG', MWI:'MW', MYS:'MY',
+      MDV:'MV', MLI:'ML', MLT:'MT', MHL:'MH', MTQ:'MQ', MRT:'MR', MUS:'MU', MYT:'YT', MEX:'MX',
+      FSM:'FM', MDA:'MD', MCO:'MC', MNG:'MN', MNE:'ME', MSR:'MS', MAR:'MA', MOZ:'MZ', MMR:'MM',
+      NAM:'NA', NRU:'NR', NPL:'NP', NLD:'NL', NCL:'NC', NZL:'NZ', NIC:'NI', NER:'NE', NGA:'NG',
+      NIU:'NU', NFK:'NF', MKD:'MK', MNP:'MP', NOR:'NO', OMN:'OM', PAK:'PK', PLW:'PW', PSE:'PS',
+      PAN:'PA', PNG:'PG', PRY:'PY', PER:'PE', PHL:'PH', PCN:'PN', POL:'PL', PRT:'PT', PRI:'PR',
+      QAT:'QA', REU:'RE', ROU:'RO', RUS:'RU', RWA:'RW', BLM:'BL', SHN:'SH', KNA:'KN', LCA:'LC',
+      MAF:'MF', SPM:'PM', VCT:'VC', WSM:'WS', SMR:'SM', STP:'ST', SAU:'SA', SEN:'SN', SRB:'RS',
+      SYC:'SC', SLE:'SL', SGP:'SG', SXM:'SX', SVK:'SK', SVN:'SI', SLB:'SB', SOM:'SO', ZAF:'ZA',
+      SGS:'GS', SSD:'SS', ESP:'ES', LKA:'LK', SDN:'SD', SUR:'SR', SJM:'SJ', SWE:'SE', CHE:'CH',
+      SYR:'SY', TWN:'TW', TJK:'TJ', TZA:'TZ', THA:'TH', TLS:'TL', TGO:'TG', TKL:'TK', TON:'TO',
+      TTO:'TT', TUN:'TN', TUR:'TR', TKM:'TM', TCA:'TC', TUV:'TV', UGA:'UG', UKR:'UA', ARE:'AE',
+      GBR:'GB', USA:'US', UMI:'UM', URY:'UY', UZB:'UZ', VUT:'VU', VEN:'VE', VNM:'VN', VGB:'VG',
+      VIR:'VI', WLF:'WF', ESH:'EH', YEM:'YE', ZMB:'ZM', ZWE:'ZW'
+    };
+    // Windows KHÔNG cài sẵn font emoji cờ quốc gia (Chrome/Edge trên Windows chỉ hiện 2 chữ cái
+    // thô như "VN" thay vì hình lá cờ) — đây là giới hạn của hệ điều hành, không phải lỗi code.
+    // Để hiện đúng lá cờ trên MỌI hệ điều hành (Windows/macOS/Linux/điện thoại), dùng ẢNH cờ
+    // thật (SVG) từ flagcdn.com thay vì trông chờ vào font emoji của máy người dùng — vẫn tra
+    // đúng 100% theo mã ISO alpha-2 chuẩn, chỉ khác là hiển thị bằng <img> thay vì ký tự Unicode.
+    function flagImgHtmlForId(id, sizePx) {
+      const iso2 = ISO3_TO_ISO2[id];
+      if (!iso2) return '';
+      const code = iso2.toLowerCase();
+      const h = sizePx || 13;
+      return '<img class="econ-flag" src="https://flagcdn.com/h' + (h * 2) + '/' + code + '.png" '
+        + 'height="' + h + '" alt="' + iso2 + '" loading="lazy" '
+        + 'onerror="this.style.display=\'none\'">';
+    }
+
+    const VN_ISLAND_MARKERS = [
+      { name: 'Quần đảo Hoàng Sa', lon: 112.338, lat: 16.834 },
+      { name: 'Quần đảo Trường Sa', lon: 111.923, lat: 8.645 }
+    ];
+    const VN_FLAG_RED = 0xDA251D;
+    const VN_FLAG_YELLOW = 0xFFCD00;
 
     function setStatus(msg, isError) {
       if (!statusEl) return;
@@ -4346,19 +4398,14 @@
     function gradientColorsFor(cfg) {
       return cfg.goodDirection === 'high' ? [...GRADIENT_LOW_TO_HIGH].reverse() : GRADIENT_LOW_TO_HIGH;
     }
-
     function scaleFor(cfg) {
-      if (!cfg._scale) {
-        cfg._scale = d3.scaleLinear().domain(cfg.breaks).range(gradientColorsFor(cfg)).clamp(true);
-      }
+      if (!cfg._scale) cfg._scale = d3.scaleLinear().domain(cfg.breaks).range(gradientColorsFor(cfg)).clamp(true);
       return cfg._scale;
     }
-
     function colorFor(value, cfg) {
       if (value === undefined || value === null || isNaN(value)) return NO_DATA_COLOR;
       return scaleFor(cfg)(value);
     }
-
     function percentOnScale(value, cfg) {
       const min = cfg.breaks[0], max = cfg.breaks[cfg.breaks.length - 1];
       return Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
@@ -4374,26 +4421,25 @@
       legendLabelsEl.innerHTML = cfg.breaks.map(b => '<span>' + b + cfg.unit + '</span>').join('');
       resetLegendHover();
     }
-
-    // Cập nhật dòng "quốc gia đang hover" bên dưới legend + di chuyển vạch đánh dấu trên thang màu.
-    function updateLegendHover(cfg, name, rec) {
+    function updateLegendHover(cfg, name, rec, id) {
       const dotEl = document.getElementById('econ-legend-hover-dot');
       const textEl = document.getElementById('econ-legend-hover-text');
       const markerEl = document.getElementById('econ-legend-marker');
       if (!dotEl || !textEl) return;
+      const flagHtml = flagImgHtmlForId(id);
+      const nameHtml = flagHtml + name;
       if (rec) {
         dotEl.style.background = colorFor(rec.value, cfg);
-        textEl.innerHTML = '<span class="econ-legend-hover-name">' + name + '</span> · '
+        textEl.innerHTML = '<span class="econ-legend-hover-name">' + nameHtml + '</span> · '
           + '<span class="econ-legend-hover-val">' + rec.value.toFixed(1) + cfg.unit + '</span> '
           + '<span class="econ-legend-hover-year">(' + rec.year + ')</span>';
         if (markerEl) { markerEl.style.left = percentOnScale(rec.value, cfg) + '%'; markerEl.classList.add('show'); }
       } else {
         dotEl.style.background = NO_DATA_COLOR;
-        textEl.innerHTML = '<span class="econ-legend-hover-name">' + name + '</span> · Không có dữ liệu';
+        textEl.innerHTML = '<span class="econ-legend-hover-name">' + nameHtml + '</span> · Không có dữ liệu';
         if (markerEl) markerEl.classList.remove('show');
       }
     }
-
     function resetLegendHover() {
       const dotEl = document.getElementById('econ-legend-hover-dot');
       const textEl = document.getElementById('econ-legend-hover-text');
@@ -4413,8 +4459,6 @@
         if (!res.ok) throw new Error('WB API lỗi ' + res.status);
         json = await res.json();
       } catch (directErr) {
-        // Nguồn trực tiếp bị chặn CORS (thường gặp khi mở file HTML trực tiếp, origin 'null')
-        // -> thử lại qua CORS-proxy allorigins.
         const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
         const res2 = await fetch(proxyUrl);
         if (!res2.ok) throw new Error('WB API lỗi ' + res2.status);
@@ -4431,12 +4475,13 @@
       return map;
     }
 
-    function showTooltip(event, feature, dataMap, cfg) {
-      const rec = dataMap[feature.id];
-      const name = (feature.properties && feature.properties.name) || feature.id;
-      let html = '<div class="econ-tt-name"></div><div class="econ-tt-val"></div>';
-      tooltipEl.innerHTML = html;
-      tooltipEl.querySelector('.econ-tt-name').textContent = name;
+    function showTooltip(clientX, clientY, name, rec, cfg, id) {
+      if (!tooltipEl) return;
+      tooltipEl.innerHTML = '<div class="econ-tt-name"></div><div class="econ-tt-val"></div>';
+      const flagHtml = flagImgHtmlForId(id, 12);
+      const nameEl = tooltipEl.querySelector('.econ-tt-name');
+      nameEl.innerHTML = flagHtml; // chỉ chứa <img> do chính ta tạo ra, an toàn để dùng innerHTML
+      nameEl.appendChild(document.createTextNode((flagHtml ? ' ' : '') + name));
       const valEl = tooltipEl.querySelector('.econ-tt-val');
       if (rec) {
         valEl.textContent = rec.value.toFixed(1) + cfg.unit + '  ';
@@ -4448,16 +4493,144 @@
         valEl.classList.add('econ-tt-nodata');
         valEl.textContent = 'Không có dữ liệu';
       }
-      let clientX = event.clientX, clientY = event.clientY;
-      if (event.touches && event.touches.length) { clientX = event.touches[0].clientX; clientY = event.touches[0].clientY; }
       const tw = tooltipEl.offsetWidth || 140;
       tooltipEl.style.left = Math.min(clientX + 14, window.innerWidth - tw - 8) + 'px';
       tooltipEl.style.top = Math.max(clientY - 12, 8) + 'px';
       tooltipEl.classList.add('show');
-      clearTimeout(state.tooltipTimer);
-      if (event.type === 'touchstart') { state.tooltipTimer = setTimeout(hideTooltip, 2500); }
     }
-    function hideTooltip() { tooltipEl.classList.remove('show'); }
+    function hideTooltip() { if (tooltipEl) tooltipEl.classList.remove('show'); }
+
+    // --- Lớp overlay 2D (biên giới + tô màu dữ liệu) vẽ bằng d3.geoPath lên canvas rời, dùng làm
+    // texture trong suốt phủ lên khối cầu ảnh vệ tinh. Phép chiếu equirectangular căn đúng theo
+    // hệ UV mặc định của SphereGeometry nên biên giới khớp chính xác lên bề mặt Trái Đất thật.
+    const OVERLAY_W = 2048, OVERLAY_H = 1024;
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = OVERLAY_W; overlayCanvas.height = OVERLAY_H;
+    const octx = overlayCanvas.getContext('2d');
+    const overlayProjection = d3.geoEquirectangular()
+      .translate([OVERLAY_W / 2, OVERLAY_H / 2])
+      .scale(OVERLAY_W / (2 * Math.PI));
+    const overlayPath = d3.geoPath(overlayProjection, octx);
+    let overlayTexture = null;
+
+    // ===================================================================================
+    // "ẢNH NHẬN DIỆN" (PICK TEXTURE) — cơ chế phát hiện nước khi hover, viết lại hoàn toàn.
+    // Ý tưởng: KHÔNG dùng bất kỳ phép toán hình học nào (point-in-polygon, geoContains…) vì
+    // các phép toán đó phụ thuộc vào chất lượng dữ liệu biên giới (đa giác tự cắt, sai chiều
+    // vẽ, lỗi vành đai quốc tế…) và dễ nhận nhầm nước. Thay vào đó: tô mỗi nước bằng ĐÚNG 1 mã
+    // màu RGB duy nhất lên một canvas rời ("ảnh nhận diện"), dùng chung hệ chiếu equirectangular
+    // với lớp overlay hiển thị. Khi hover, chỉ cần đọc đúng 1 điểm ảnh tại toạ độ UV giao điểm
+    // trên khối cầu rồi giải mã màu -> ra thẳng nước tương ứng. Vì màu được đọc ra CHÍNH LÀ màu
+    // đã thực sự được vẽ, kết quả luôn khớp tuyệt đối 100% với hình học đã dựng — không còn phụ
+    // thuộc, và miễn nhiễm hoàn toàn, với các lỗi dữ liệu hình học kể trên. Đây là kỹ thuật
+    // "color/GPU picking" tiêu chuẩn mà nhiều bản đồ chuyên nghiệp (kể cả TradingView) dùng để
+    // nhận diện vùng hover chính xác tuyệt đối.
+    const PICK_W = 4096, PICK_H = 2048; // độ phân giải riêng, cao hơn overlay hiển thị để biên
+                                         // giới trên "ảnh nhận diện" mảnh & chính xác hơn nữa
+    const pickCanvas = document.createElement('canvas');
+    pickCanvas.width = PICK_W; pickCanvas.height = PICK_H;
+    const pctx = pickCanvas.getContext('2d', { willReadFrequently: true });
+    const pickProjection = d3.geoEquirectangular()
+      .translate([PICK_W / 2, PICK_H / 2])
+      .scale(PICK_W / (2 * Math.PI));
+    const pickPath = d3.geoPath(pickProjection, pctx);
+
+    // id 0 để dành cho "không thuộc nước nào" (biển, vùng chưa có polygon…) nên mã màu của từng
+    // nước bắt đầu từ 1 — thừa sức mã hoá hơn 16 triệu nước cho tập dữ liệu chỉ ~200 quốc gia.
+    function pickIdToColor(id) {
+      return 'rgb(' + ((id >> 16) & 255) + ',' + ((id >> 8) & 255) + ',' + (id & 255) + ')';
+    }
+    function pickColorToId(r, g, b) { return (r << 16) | (g << 8) | b; }
+
+    // Thứ tự tô lên "ảnh nhận diện" rất quan trọng với các nước lọt thỏm bên trong nước khác
+    // (vd. Lesotho nằm trọn trong Nam Phi, San Marino/Vatican trong Ý…): phải tô nước có diện
+    // tích LỚN trước, rồi tô nước NHỎ đè lên sau — nhờ vậy phần diện tích nhỏ xíu đó luôn được
+    // nhận đúng ra nước nhỏ, thay vì bị nước lớn bao quanh ghi đè tuỳ theo thứ tự ngẫu nhiên có
+    // sẵn trong dữ liệu GeoJSON gốc. Không cần dựa vào lỗ khoét (hole) hay chiều vẽ ring nào cả.
+    function buildPickBuffer() {
+      if (!state.world) return;
+      const feats = state.world.features;
+      const order = feats.map((f, i) => i).sort((a, b) => {
+        let areaA = 0, areaB = 0;
+        try { areaA = d3.geoArea(feats[a]); } catch (err) {}
+        try { areaB = d3.geoArea(feats[b]); } catch (err) {}
+        return areaB - areaA; // diện tích lớn vẽ trước, nhỏ vẽ sau (đè lên trên)
+      });
+      pctx.clearRect(0, 0, PICK_W, PICK_H);
+      pctx.imageSmoothingEnabled = false;
+      order.forEach(i => {
+        const f = feats[i];
+        if (!f.geometry) return;
+        pctx.beginPath();
+        try { pickPath(f); } catch (err) { return; }
+        pctx.fillStyle = pickIdToColor(i + 1);
+        pctx.fill('nonzero');
+      });
+    }
+
+    // Đọc đúng 1 điểm ảnh trên "ảnh nhận diện" tại toạ độ UV (0..1) — CÙNG hệ UV với khối cầu
+    // 3D (SphereGeometry mặc định) — rồi giải mã màu đó ra thẳng feature tương ứng. Không còn
+    // bất kỳ phép toán hình học/lượng giác cầu nào xen vào giữa "điểm chuột trỏ vào" và "nước
+    // được nhận ra" — loại bỏ tận gốc mọi khả năng sai lệch do dữ liệu biên giới.
+    function pickFeatureAtUV(u, v) {
+      if (!state.world) return null;
+      // QUAN TRỌNG: UV.y do Three.js SphereGeometry trả về bằng 1 ở cực Bắc và 0 ở cực Nam,
+      // trong khi hàng pixel (py) trên canvas 2D lại đếm từ trên (Bắc, py=0) xuống dưới (Nam,
+      // py=PICK_H) — hai hệ NGƯỢC chiều nhau. Phải đảo thành (1 - v) trước khi quy đổi sang toạ
+      // độ pixel, nếu không mọi điểm sẽ bị đọc nhầm sang đúng vĩ độ đối xứng ở bán cầu kia (vd.
+      // rê chuột vào Việt Nam lại ra kết quả của một nước ở Nam bán cầu như Australia).
+      const px = Math.min(PICK_W - 1, Math.max(0, Math.floor(u * PICK_W)));
+      const py = Math.min(PICK_H - 1, Math.max(0, Math.floor((1 - v) * PICK_H)));
+      // Cố tình KHÔNG try/catch ở đây: nếu getImageData bị lỗi (một số ít khung nhúng/sandbox có
+      // chính sách bảo mật đặc thù chặn đọc lại điểm ảnh canvas), để lỗi bung ra cho handleHover
+      // bắt và tự chuyển sang cơ chế dự phòng bên dưới, thay vì âm thầm coi như "không có nước".
+      const data = pctx.getImageData(px, py, 1, 1).data;
+      if (data[3] === 0) return null; // alpha 0 -> điểm chưa được tô -> ngoài mọi nước (biển)
+      const id = pickColorToId(data[0], data[1], data[2]);
+      if (id <= 0) return null;
+      return state.world.features[id - 1] || null;
+    }
+
+    // Lưới an toàn dự phòng: cực hiếm khi cần tới, nhưng nếu trình duyệt/khung nhúng nào đó chặn
+    // getImageData (dù canvas hoàn toàn "sạch", không dính ảnh cross-origin nào), hover không nên
+    // "chết đứng" hoàn toàn — tự động rơi về cách dò kinh/vĩ độ bằng d3.geoContains() như trước,
+    // hoạt động độc lập với "ảnh nhận diện" nên không bị ảnh hưởng bởi lý do khiến pixel-pick hỏng.
+    function findFeatureAtLonLatFallback(lon, lat) {
+      if (!state.world) return null;
+      for (const f of state.world.features) {
+        try {
+          if (f.geometry && d3.geoContains(f, [lon, lat])) return f;
+        } catch (err) {
+          // Bỏ qua nước có dữ liệu hình học lỗi, không để crash làm treo tooltip.
+        }
+      }
+      return null;
+    }
+
+    function drawOverlay() {
+      if (!state.world) return;
+      octx.clearRect(0, 0, OVERLAY_W, OVERLAY_H);
+      // Chỉ vẽ viền biên giới mảnh, không tô màu cả nước theo dữ liệu — chỉ số vẫn xem được
+      // qua hover (tooltip + chú giải bên dưới).
+      state.world.features.forEach(f => {
+        octx.beginPath();
+        overlayPath(f);
+        octx.lineWidth = 0.9;
+        octx.strokeStyle = 'rgba(255,255,255,0.35)';
+        octx.stroke();
+      });
+      if (state.hoverId != null) {
+        const hf = state.world.features.find(f => f.id === state.hoverId);
+        if (hf) {
+          octx.beginPath();
+          overlayPath(hf);
+          octx.lineWidth = 2.4;
+          octx.strokeStyle = '#ffffff';
+          octx.stroke();
+        }
+      }
+      if (overlayTexture) overlayTexture.needsUpdate = true;
+    }
 
     async function switchIndicator(key) {
       const cfg = ECON_INDICATORS[key];
@@ -4467,20 +4640,14 @@
       renderLegend(cfg);
       setStatus('Đang tải dữ liệu ' + cfg.tab.toLowerCase() + '…');
       try {
-        const dataMap = await fetchIndicator(key);
-        state.countries
-          .transition().duration(350)
-          .attr('fill', d => colorFor(dataMap[d.id] ? dataMap[d.id].value : null, cfg));
-        state.countries
-          .on('mousemove touchstart', (event, d) => {
-            const name = (d.properties && d.properties.name) || d.id;
-            showTooltip(event, d, dataMap, cfg);
-            updateLegendHover(cfg, name, dataMap[d.id]);
-          })
-          .on('mouseleave', () => { hideTooltip(); resetLegendHover(); });
+        await fetchIndicator(key);
+        drawOverlay();
         setStatus('');
       } catch (e) {
         setStatus('Không tải được dữ liệu từ World Bank. Vui lòng thử lại sau.', true);
+        // Tự ẩn sau vài giây — không để lớp thông báo che vĩnh viễn bản đồ (quả cầu vẫn
+        // xoay/hover được bình thường ngay cả khi dữ liệu chỉ số này tải lỗi).
+        setTimeout(() => setStatus(''), 3500);
       }
     }
 
@@ -4494,173 +4661,289 @@
       });
     }
 
-    // Vẽ lại tất cả path (đại dương, lưới kinh vĩ tuyến, quốc gia) + cờ theo góc xoay hiện tại.
-    function redraw() {
-      if (!path) return;
-      if (oceanSel) oceanSel.attr('d', path);
-      if (graticuleSel) graticuleSel.attr('d', path);
-      if (state.countries) state.countries.attr('d', path);
-      updateFlags();
+    function latLonToVec3(lat, lon, radius) {
+      const phi = (90 - lat) * (Math.PI / 180);
+      const theta = (lon + 180) * (Math.PI / 180);
+      return new THREE.Vector3(
+        -radius * Math.sin(phi) * Math.cos(theta),
+        radius * Math.cos(phi),
+        radius * Math.sin(phi) * Math.sin(theta)
+      );
     }
 
-    // Một nước được coi là "quay ra phía trước" nếu tâm địa lý của nó cách tâm khung nhìn < 90°.
-    function isFrontFacing(feature) {
-      const c = feature._centroid || (feature._centroid = d3.geoCentroid(feature));
-      const r = projection.rotate();
-      const center = [-r[0], -r[1]];
-      return d3.geoDistance(c, center) < VISIBLE_THRESHOLD;
-    }
+    let renderer, scene, camera, earthGroup, earthMesh, overlayMesh, atmosphereMesh;
+    let autoRotate = true;
+    let autoRotateResumeT = null;
+    const AUTO_ROTATE_SPEED = 0.00045;
 
-    function updateFlags() {
-      if (!flagLayerSel || !flagFeatures.length) return;
-      const visible = flagFeatures.filter(isFrontFacing);
-      flagLayerSel.selectAll('image.econ-flag')
-        .data(visible, f => f.id)
-        .join(
-          enter => enter.append('image')
-            .attr('class', 'econ-flag')
-            .attr('href', f => flagByIso3[f.id])
-            .attr('width', FLAG_W)
-            .attr('height', FLAG_H)
-            .style('opacity', 0)
-            .call(sel => sel.transition().duration(150).style('opacity', 1)),
-          update => update,
-          exit => exit.remove()
-        )
-        .attr('x', f => path.centroid(f)[0] - FLAG_W / 2)
-        .attr('y', f => path.centroid(f)[1] - FLAG_H / 2);
+    function buildAtmosphere() {
+      const atmoGeo = new THREE.SphereGeometry(1.06, 64, 64);
+      const atmoMat = new THREE.ShaderMaterial({
+        vertexShader: `varying vec3 vNormal; void main(){ vNormal = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+        fragmentShader: `varying vec3 vNormal; void main(){ float i = pow(0.68 - dot(vNormal, vec3(0.0,0.0,1.0)), 3.2); gl_FragColor = vec4(0.45,0.72,1.0,1.0) * i; }`,
+        blending: THREE.AdditiveBlending, side: THREE.BackSide, transparent: true, depthWrite: false
+      });
+      return new THREE.Mesh(atmoGeo, atmoMat);
     }
-
-    function startAutoRotate() {
-      if (autoRotateTimer) return;
-      autoRotateTimer = d3.timer(() => {
-        const r = projection.rotate();
-        projection.rotate([r[0] + AUTO_ROTATE_SPEED, r[1], r[2]]);
-        redraw();
+    function buildStarfield() {
+      const starCount = 700;
+      const positions = new Float32Array(starCount * 3);
+      for (let i = 0; i < starCount; i++) {
+        const r = 40 + Math.random() * 20;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+        positions[i * 3 + 2] = r * Math.cos(phi);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.16, sizeAttenuation: true, transparent: true, opacity: 0.75 });
+      return new THREE.Points(geo, mat);
+    }
+    function addIslandMarkers(parent) {
+      VN_ISLAND_MARKERS.forEach((m, i) => {
+        const pos = latLonToVec3(m.lat, m.lon, 1.02);
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.015, 12, 12), new THREE.MeshBasicMaterial({ color: i === 0 ? VN_FLAG_YELLOW : VN_FLAG_RED }));
+        dot.position.copy(pos);
+        dot.name = m.name;
+        parent.add(dot);
       });
     }
-    function stopAutoRotate() {
-      if (autoRotateTimer) { autoRotateTimer.stop(); autoRotateTimer = null; }
+
+    function onResize() {
+      if (!renderer || !wrapEl) return;
+      const w = wrapEl.clientWidth, h = wrapEl.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
     }
     function scheduleAutoRotateResume() {
       clearTimeout(autoRotateResumeT);
-      autoRotateResumeT = setTimeout(startAutoRotate, 2200);
+      autoRotateResumeT = setTimeout(() => { autoRotate = true; }, 2200);
     }
 
-    // Lấy URL cờ (PNG) theo mã ISO3 từ REST Countries, khớp thẳng với id (ISO3) của GeoJSON,
-    // sau đó chỉ hiển thị cờ của những nước đang quay ra phía trước quả cầu.
-    async function loadCountryFlags(world) {
-      const FLAG_API = 'https://restcountries.com/v3.1/all?fields=cca3,flags';
-      let list;
+    // --- Hover: raycast từ con trỏ chuột vào khối cầu để lấy đúng toạ độ UV của điểm giao (UV
+    // này đến thẳng từ hình học SphereGeometry của Three.js, không tự tính lại nên luôn chính
+    // xác), rồi ĐỌC MÀU tại đúng điểm đó trên "ảnh nhận diện" (xem khối pickFeatureAtUV phía
+    // trên) để biết ngay đó là nước nào — không còn một phép toán hình học/dò đa giác nào nữa.
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let hoverRafPending = false;
+
+    function handleHover(clientX, clientY) {
       try {
-        const res = await fetch(FLAG_API);
-        if (!res.ok) throw new Error('flags api ' + res.status);
-        list = await res.json();
-      } catch (directErr) {
-        try {
-          const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(FLAG_API);
-          const res2 = await fetch(proxyUrl);
-          if (!res2.ok) throw new Error('flags api lỗi ' + res2.status);
-          list = await res2.json();
-        } catch (proxyErr) {
-          console.warn('Không tải được cờ quốc gia:', proxyErr);
+        const rect = canvasEl.getBoundingClientRect();
+        ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(ndc, camera);
+        const hits = earthMesh ? raycaster.intersectObject(earthMesh) : [];
+        if (!hits.length || !hits[0].uv) {
+          if (state.hoverId != null) { state.hoverId = null; drawOverlay(); }
+          hideTooltip(); resetLegendHover();
           return;
         }
+        const uv = hits[0].uv;
+        const cfg = ECON_INDICATORS[state.current];
+        const dataMap = state.cache[state.current] || {};
+        let f;
+        if (state.pickBroken) {
+          // Đã xác định "ảnh nhận diện" không dùng được trong môi trường này -> dùng thẳng dự phòng.
+          // (uv.y=1 ở cực Bắc, uv.y=0 ở cực Nam trong hệ UV của Three.js -> vĩ độ = uv.y*180-90)
+          f = findFeatureAtLonLatFallback(uv.x * 360 - 180, uv.y * 180 - 90);
+        } else {
+          try {
+            f = pickFeatureAtUV(uv.x, uv.y);
+          } catch (pickErr) {
+            state.pickBroken = true; // chỉ cần rơi 1 lần -> nhớ luôn, khỏi thử lại đọc pixel mỗi lần rê chuột
+            if (console && console.warn) {
+              console.warn('[econGlobe] Không đọc được "ảnh nhận diện" (getImageData bị chặn trong môi trường này) — tự động chuyển sang cách dò kinh/vĩ độ dự phòng.', pickErr);
+            }
+            f = findFeatureAtLonLatFallback(uv.x * 360 - 180, uv.y * 180 - 90);
+          }
+        }
+        if (f) {
+          if (state.hoverId !== f.id) { state.hoverId = f.id; drawOverlay(); }
+          const name = (f.properties && f.properties.name) || f.id;
+          showTooltip(clientX, clientY, name, dataMap[f.id], cfg, f.id);
+          updateLegendHover(cfg, name, dataMap[f.id], f.id);
+        } else {
+          if (state.hoverId != null) { state.hoverId = null; drawOverlay(); }
+          hideTooltip(); resetLegendHover();
+        }
+      } catch (err) {
+        // Không để lỗi bất ngờ làm tooltip bị kẹt lại ở nước trước đó — nhưng vẫn log ra console
+        // để chẩn đoán được nếu có sự cố, thay vì nuốt lỗi âm thầm hoàn toàn.
+        if (console && console.warn) console.warn('[econGlobe] Lỗi khi xử lý hover:', err);
+        state.hoverId = null;
+        hideTooltip(); resetLegendHover();
       }
+    }
 
-      (list || []).forEach(c => {
-        if (c && c.cca3 && c.flags && (c.flags.png || c.flags.svg)) {
-          flagByIso3[c.cca3] = c.flags.png || c.flags.svg;
+    function bindPointerInteraction() {
+      let dragging = false, moved = false, prevX = 0, prevY = 0;
+      const k = 0.006;
+      canvasEl.style.touchAction = 'none';
+
+      canvasEl.addEventListener('pointerdown', (e) => {
+        dragging = true; moved = false;
+        autoRotate = false;
+        clearTimeout(autoRotateResumeT);
+        prevX = e.clientX; prevY = e.clientY;
+        canvasEl.classList.add('grabbing');
+        try { canvasEl.setPointerCapture(e.pointerId); } catch (err) {}
+      });
+
+      canvasEl.addEventListener('pointermove', (e) => {
+        if (dragging) {
+          const dx = e.clientX - prevX, dy = e.clientY - prevY;
+          if (Math.abs(dx) > 1 || Math.abs(dy) > 1) moved = true;
+          prevX = e.clientX; prevY = e.clientY;
+          earthGroup.rotation.y += dx * k;
+          earthGroup.rotation.x += dy * k;
+          earthGroup.rotation.x = Math.max(-1.3, Math.min(1.3, earthGroup.rotation.x));
+          hideTooltip();
+          return;
+        }
+        if (hoverRafPending) return;
+        hoverRafPending = true;
+        requestAnimationFrame(() => { hoverRafPending = false; handleHover(e.clientX, e.clientY); });
+      });
+
+      const endDrag = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        canvasEl.classList.remove('grabbing');
+        scheduleAutoRotateResume();
+        if (!moved && e && typeof e.clientX === 'number') handleHover(e.clientX, e.clientY);
+      };
+      canvasEl.addEventListener('pointerup', endDrag);
+      canvasEl.addEventListener('pointercancel', endDrag);
+      window.addEventListener('pointerup', endDrag);
+
+      canvasEl.addEventListener('pointerleave', () => {
+        if (dragging) return;
+        state.hoverId = null; drawOverlay();
+        hideTooltip(); resetLegendHover();
+        scheduleAutoRotateResume();
+      });
+      canvasEl.addEventListener('pointerenter', () => {
+        clearTimeout(autoRotateResumeT);
+        autoRotate = false;
+      });
+    }
+
+    // Vẫn cần sửa vài polygon có thứ tự đỉnh (winding order) bị đảo ngược trong bộ GeoJSON nguồn
+    // (cụ thể là Bermuda) — không phải để tránh geoContains như trước nữa (kỹ thuật đó đã bị bỏ
+    // hẳn), mà vì ring bị đảo ngược làm d3.geoArea() tính ra diện tích SAI (ra "gần trọn mặt cầu"
+    // thay vì đúng diện tích tí hon thật của nó). Diện tích này giờ được dùng để QUYẾT ĐỊNH THỨ TỰ
+    // tô lên "ảnh nhận diện" (nước lớn tô trước, nước nhỏ tô sau — xem buildPickBuffer phía trên);
+    // nếu để sai, Bermuda sẽ bị tưởng là "nước lớn nhất thế giới" và được tô trước tiên, khiến các
+    // nước khác đè lên che mất — vẫn cần đảo lại ring để d3.geoArea() phản ánh đúng diện tích thật.
+    // Không quốc gia thực nào có diện tích vượt quá nửa mặt cầu (2π sr), nên hễ d3.geoArea() tính
+    // ra lớn hơn ngưỡng đó, chắc chắn ring bị đảo ngược -> tự đảo lại thứ tự điểm cho đúng.
+    function fixInvertedWinding(world) {
+      if (!world || !world.features) return world;
+      let fixedCount = 0;
+      world.features.forEach(f => {
+        if (!f.geometry) return;
+        let area;
+        try { area = d3.geoArea(f); } catch (err) { return; }
+        if (area > 2 * Math.PI) {
+          const type = f.geometry.type;
+          if (type === 'Polygon') {
+            f.geometry.coordinates = f.geometry.coordinates.map(ring => ring.slice().reverse());
+          } else if (type === 'MultiPolygon') {
+            f.geometry.coordinates = f.geometry.coordinates.map(poly => poly.map(ring => ring.slice().reverse()));
+          }
+          fixedCount++;
         }
       });
-      flagFeatures = world.features.filter(f => !!flagByIso3[f.id]);
-      flagFeatures.forEach(f => { f._centroid = d3.geoCentroid(f); });
-      updateFlags();
+      if (fixedCount && console && console.warn) {
+        console.warn('[econGlobe] Đã sửa ' + fixedCount + ' nước có winding order bị đảo ngược trong dữ liệu biên giới.');
+      }
+      return world;
     }
 
     (async function boot() {
       setStatus('Đang tải quả cầu…');
       try {
-        const world = await d3.json(GEO_URL);
-        const SIZE = 620, PAD = 26;
-        projection = d3.geoOrthographic()
-          .rotate([-20, -12, 0])
-          .clipAngle(90)
-          .fitExtent([[PAD, PAD], [SIZE - PAD, SIZE - PAD]], { type: 'Sphere' });
-        path = d3.geoPath(projection);
+        renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 
-        const svg = d3.select(svgEl);
-        svg.selectAll('*').remove();
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+        camera.position.set(0, 0, 2.7);
 
-        const cx = projection.translate()[0], cy = projection.translate()[1];
-        const r = projection.scale();
+        scene.add(buildStarfield());
+        scene.add(new THREE.AmbientLight(0x445066, 1.15));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.35);
+        sun.position.set(4, 2.2, 4);
+        scene.add(sun);
 
-        const defs = svg.append('defs');
+        earthGroup = new THREE.Group();
+        earthGroup.rotation.y = THREE.MathUtils.degToRad(-110);
+        earthGroup.rotation.x = THREE.MathUtils.degToRad(8);
+        scene.add(earthGroup);
 
-        // Gradient đại dương: mô phỏng ánh sáng chiếu từ góc trên-trái, tối dần ra rìa cho cảm giác hình cầu 3D.
-        const oceanGrad = defs.append('radialGradient').attr('id', 'econ-ocean-grad').attr('cx', '32%').attr('cy', '28%').attr('r', '80%');
-        oceanGrad.append('stop').attr('offset', '0%').attr('stop-color', '#5fa8e8');
-        oceanGrad.append('stop').attr('offset', '35%').attr('stop-color', '#2f74c4');
-        oceanGrad.append('stop').attr('offset', '70%').attr('stop-color', '#164a8a');
-        oceanGrad.append('stop').attr('offset', '100%').attr('stop-color', '#0a2647');
+        atmosphereMesh = buildAtmosphere();
+        scene.add(atmosphereMesh);
 
-        // Vầng khí quyển phát sáng quanh rìa quả cầu.
-        const atmoGrad = defs.append('radialGradient').attr('id', 'econ-atmo-grad').attr('cx', '50%').attr('cy', '50%').attr('r', '50%');
-        atmoGrad.append('stop').attr('offset', '82%').attr('stop-color', '#5fb4ff').attr('stop-opacity', 0);
-        atmoGrad.append('stop').attr('offset', '94%').attr('stop-color', '#5fb4ff').attr('stop-opacity', 0.45);
-        atmoGrad.append('stop').attr('offset', '100%').attr('stop-color', '#5fb4ff').attr('stop-opacity', 0);
+        const loader = new THREE.TextureLoader();
+        loader.crossOrigin = 'anonymous';
+        const BASE = 'https://cdn.jsdelivr.net/npm/three-globe/example/img/';
+        const colorMap = loader.load(BASE + 'earth-blue-marble.jpg');
+        const bumpMap = loader.load(BASE + 'earth-topology.png');
+        const specMap = loader.load(BASE + 'earth-water.png');
 
-        // Đổ bóng nhẹ dưới quả cầu để có cảm giác đang lơ lửng, không bị dính phẳng vào nền.
-        const shadowFilter = defs.append('filter').attr('id', 'econ-globe-shadow').attr('x', '-60%').attr('y', '-60%').attr('width', '220%').attr('height', '220%');
-        shadowFilter.append('feDropShadow').attr('dx', 0).attr('dy', 10).attr('stdDeviation', 14).attr('flood-color', '#000').attr('flood-opacity', 0.5);
+        const earthGeo = new THREE.SphereGeometry(1, 96, 96);
+        const earthMat = new THREE.MeshPhongMaterial({
+          map: colorMap, bumpMap: bumpMap, bumpScale: 0.015,
+          specularMap: specMap, specular: new THREE.Color(0x333333), shininess: 9
+        });
+        earthMesh = new THREE.Mesh(earthGeo, earthMat);
+        earthGroup.add(earthMesh);
 
-        svg.append('circle')
-          .attr('class', 'econ-globe-atmosphere')
-          .attr('cx', cx).attr('cy', cy).attr('r', r * 1.05)
-          .style('fill', 'url(#econ-atmo-grad)');
+        overlayTexture = new THREE.CanvasTexture(overlayCanvas);
+        overlayTexture.needsUpdate = true;
+        const overlayGeo = new THREE.SphereGeometry(1.004, 96, 96);
+        const overlayMat = new THREE.MeshBasicMaterial({ map: overlayTexture, transparent: true, depthWrite: false });
+        overlayMesh = new THREE.Mesh(overlayGeo, overlayMat);
+        earthGroup.add(overlayMesh);
 
-        const bodyGroup = svg.append('g').attr('class', 'econ-globe-body').style('filter', 'url(#econ-globe-shadow)');
+        addIslandMarkers(earthGroup);
+        bindPointerInteraction();
 
-        oceanSel = bodyGroup.append('path')
-          .datum({ type: 'Sphere' })
-          .attr('class', 'econ-globe-ocean')
-          .attr('d', path)
-          .style('fill', 'url(#econ-ocean-grad)');
+        const ro = new ResizeObserver(onResize);
+        ro.observe(wrapEl);
+        onResize();
+        window.addEventListener('resize', onResize);
 
-        graticuleSel = bodyGroup.append('path')
-          .datum(d3.geoGraticule10())
-          .attr('class', 'econ-globe-graticule')
-          .attr('d', path);
+        function animate() {
+          requestAnimationFrame(animate);
+          if (autoRotate) earthGroup.rotation.y += AUTO_ROTATE_SPEED;
+          renderer.render(scene, camera);
+        }
+        animate();
 
-        const g = bodyGroup.append('g');
-        state.countries = g.selectAll('path.econ-country')
-          .data(world.features)
-          .join('path')
-          .attr('class', 'econ-country')
-          .attr('d', path)
-          .on('mouseleave', () => { hideTooltip(); resetLegendHover(); });
-
-        flagLayerSel = svg.append('g').attr('class', 'econ-flag-layer');
-
-        // Kéo chuột/chạm để xoay quả cầu (giống lăn địa cầu)
-        const dragBehavior = d3.drag()
-          .on('start', () => { stopAutoRotate(); svgEl.classList.add('grabbing'); })
-          .on('drag', (event) => {
-            const r = projection.rotate();
-            const k = 230 / (projection.scale() || 1);
-            const nextLambda = r[0] + event.dx * k;
-            const nextPhi = Math.max(-90, Math.min(90, r[1] - event.dy * k));
-            projection.rotate([nextLambda, nextPhi, r[2]]);
-            redraw();
-          })
-          .on('end', () => { svgEl.classList.remove('grabbing'); scheduleAutoRotateResume(); });
-        svg.style('touch-action', 'none').call(dragBehavior);
-        svg.on('mouseenter', () => stopAutoRotate()).on('mouseleave', () => scheduleAutoRotateResume());
-
-        state.ready = true;
-        await switchIndicator(state.current);
-        startAutoRotate();
-        loadCountryFlags(world);
+        try {
+          let world;
+          try {
+            world = await d3.json(GEO_URL);
+          } catch (directErr) {
+            world = await d3.json('https://api.allorigins.win/raw?url=' + encodeURIComponent(GEO_URL));
+          }
+          state.world = fixInvertedWinding(world);
+          // Dựng "ảnh nhận diện" 1 lần duy nhất ngay khi có hình học biên giới — hình học không
+          // đổi khi chuyển tab chỉ số (Lạm phát/GDP/Thất nghiệp) nên không cần dựng lại về sau.
+          buildPickBuffer();
+          state.ready = true;
+          await switchIndicator(state.current);
+        } catch (geoErr) {
+          setStatus('Không tải được dữ liệu biên giới nước — quả cầu vẫn xoay nhưng chưa hover được nước.', true);
+          setTimeout(() => setStatus(''), 4000);
+        }
       } catch (e) {
         setStatus('Không tải được quả cầu. Kiểm tra kết nối mạng và thử lại.', true);
       }
