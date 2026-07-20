@@ -4323,7 +4323,7 @@
       unemployment: { code: 'SL.UEM.TOTL.ZS', title: 'Bản đồ thất nghiệp toàn cầu', tab: 'Thất nghiệp', unit: '%', breaks: [4, 7, 10, 15, 20], goodDirection: 'low' }
     };
 
-    const state = { current: 'inflation', cache: {}, world: null, ready: false, hoverId: null, tooltipTimer: null, pickBroken: false, vnHover: false };
+    const state = { current: 'inflation', cache: {}, world: null, ready: false, hoverId: null, tooltipTimer: null, pickBroken: false };
 
     // ===================================================================================
     // BẢNG TRA CỨU CỜ QUỐC GIA — ánh xạ mã ISO 3166-1 alpha-3 (mã "id" mà mỗi feature trong
@@ -4385,7 +4385,7 @@
     // vì chỉ 1 chấm duy nhất, cho sát với hình dạng/phạm vi trải dài thật trên bản đồ hơn.
     const VN_ISLAND_GROUPS = [
       {
-        key: 'hoangsa', name: 'Quần đảo Hoàng Sa', color: 0xFFCD00,
+        key: 'hoangsa', name: 'Quần đảo Hoàng Sa', color: 0xC9BE93,
         islands: [
           { name: 'Đảo Phú Lâm', lon: 112.3385, lat: 16.8345 },
           { name: 'Đảo Hoàng Sa', lon: 111.6144, lat: 16.8319 },
@@ -4398,7 +4398,7 @@
         ]
       },
       {
-        key: 'truongsa', name: 'Quần đảo Trường Sa', color: 0xDA251D,
+        key: 'truongsa', name: 'Quần đảo Trường Sa', color: 0xC9BE93,
         islands: [
           { name: 'Đảo Trường Sa Lớn', lon: 111.9200, lat: 8.6450 },
           { name: 'Đảo Song Tử Tây', lon: 114.3283, lat: 11.4297 },
@@ -4413,11 +4413,6 @@
         ]
       }
     ];
-    const VN_FLAG_RED = 0xDA251D;
-    const VN_FLAG_YELLOW = 0xFFCD00;
-    // Danh sách các mảng để lưu tham chiếu tới các "vầng hào quang" (halo) của từng đảo, dùng để
-    // làm chúng sáng/nhấp nháy đồng loạt mỗi khi người dùng rê chuột vào lãnh thổ Việt Nam.
-    let islandHaloMeshes = [];
 
     function setStatus(msg, isError) {
       if (!statusEl) return;
@@ -4661,44 +4656,7 @@
           octx.stroke();
         }
       }
-      if (state.vnHover) drawIslandHighlights();
       if (overlayTexture) overlayTexture.needsUpdate = true;
-    }
-
-    // Vẽ khoanh vùng (đường viền đứt nét) + tên quần đảo lên lớp overlay 2D, bao quanh đúng phạm
-    // vi kinh/vĩ độ thật của từng cụm đảo — chỉ hiện khi đang hover vào lãnh thổ Việt Nam, để
-    // người xem thấy ngay Hoàng Sa & Trường Sa "cùng sáng lên" với đất liền Việt Nam.
-    function drawIslandHighlights() {
-      VN_ISLAND_GROUPS.forEach(group => {
-        const lons = group.islands.map(i => i.lon), lats = group.islands.map(i => i.lat);
-        const cLon = (Math.min(...lons) + Math.max(...lons)) / 2;
-        const cLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-        const center = overlayProjection([cLon, cLat]);
-        if (!center) return;
-        const [x, y] = center;
-        const spanLon = Math.max(1.4, Math.max(...lons) - Math.min(...lons));
-        const spanLat = Math.max(1.4, Math.max(...lats) - Math.min(...lats));
-        const rx = Math.max(24, spanLon * (OVERLAY_W / 360) * 0.75 + 20);
-        const ry = Math.max(18, spanLat * (OVERLAY_H / 180) * 0.95 + 16);
-        const colorHex = '#' + group.color.toString(16).padStart(6, '0');
-
-        octx.save();
-        octx.beginPath();
-        octx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-        octx.lineWidth = 2.2;
-        octx.setLineDash([7, 5]);
-        octx.strokeStyle = colorHex;
-        octx.stroke();
-        octx.setLineDash([]);
-
-        octx.font = '700 22px Sora, sans-serif';
-        octx.textAlign = 'center';
-        octx.shadowColor = 'rgba(0,0,0,0.85)';
-        octx.shadowBlur = 6;
-        octx.fillStyle = '#ffffff';
-        octx.fillText(group.name, x, Math.max(24, y - ry - 12));
-        octx.restore();
-      });
     }
 
     async function switchIndicator(key) {
@@ -4838,44 +4796,62 @@
       group.add(buildStarLayer(18, 30, 72, 0.9, buildSparkleTexture(128), 0.9));
       return group;
     }
+    // Danh sách các sprite "vầng sáng" phụ của từng đảo — mặc định ẩn (opacity 0), chỉ bật sáng
+    // lên khi người dùng đang hover vào Việt Nam (đất liền), để hai quần đảo "sáng theo" đất liền
+    // giống hệt cách viền trắng sáng lên quanh Việt Nam — xem setVNIslandsHighlighted() bên dưới.
+    let vnIslandGlowSprites = [];
+    const VN_MAINLAND_ID = 'VNM'; // mã ISO3 của Việt Nam trong file GeoJSON (khớp GEO_URL đang dùng)
+
     function addIslandMarkers(parent) {
-      islandHaloMeshes = [];
-      const glowTex = buildCircleGlowTexture(64);
+      // Chấm đánh dấu nhỏ, dùng tông màu đất/cát tự nhiên (giống các đốm đảo/rạn san hô thật
+      // nhìn từ ảnh vệ tinh) thay vì màu vàng/đỏ nổi bật kiểu quốc kỳ — và KHÔNG có vầng sáng/
+      // vòng tròn hiện ra khi hover, để mọi lúc trông giống ảnh vệ tinh thật, không giống điểm
+      // đánh dấu (marker) nhân tạo.
+      const dotTex = buildCircleGlowTexture(64);
+      vnIslandGlowSprites = [];
       VN_ISLAND_GROUPS.forEach(group => {
         const groupObj = new THREE.Group();
         groupObj.name = group.key;
         group.islands.forEach(isl => {
-          const pos = latLonToVec3(isl.lat, isl.lon, 1.01);
+          const pos = latLonToVec3(isl.lat, isl.lon, 1.006);
 
-          // Chấm đánh dấu chính — dùng Sprite (luôn quay mặt về camera) với texture tròn mờ dần
-          // ở viền thay vì khối cầu đặc, để dù các đảo nằm khá gần nhau trên bản đồ thật, chúng
-          // vẫn hiện ra như từng ĐỐM SÁNG riêng biệt — không bị dính liền thành một khối/dải đất.
+          // Sprite nhỏ, không blending cộng sáng (Additive) — chỉ là một đốm đất/cát mờ nhẹ,
+          // hoà vào nền đại dương của texture Trái Đất giống các đảo/rạn san hô nhỏ thật sự.
           const dotMat = new THREE.SpriteMaterial({
-            map: glowTex, color: group.color, transparent: true,
+            map: dotTex, color: group.color, transparent: true, opacity: 0.85,
             depthWrite: false, sizeAttenuation: true
           });
           const dot = new THREE.Sprite(dotMat);
           dot.position.copy(pos);
-          dot.scale.set(0.014, 0.014, 1);
+          dot.scale.set(0.006, 0.006, 1);
           dot.name = isl.name;
           groupObj.add(dot);
 
-          // "Vầng sáng" quanh mỗi đảo — vô hình lúc bình thường (opacity 0), chỉ mờ sáng lên khi
-          // người dùng rê chuột vào lãnh thổ Việt Nam. Cố tình giữ kích thước NHỎ + blending cộng
-          // (Additive) thay vì tô đặc, để dù nhiều đảo ở gần nhau, hiệu ứng vẫn là các đốm sáng
-          // chồng ánh sáng lên nhau (như đèn nhấp nháy) chứ không tạo thành một mảng màu đặc.
-          const haloMat = new THREE.SpriteMaterial({
-            map: glowTex, color: group.color, transparent: true, opacity: 0,
-            depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+          // Sprite "vầng sáng" phụ, to hơn hẳn chấm gốc, blending cộng sáng (Additive), màu
+          // trắng-vàng nổi bật — mặc định opacity 0 (vô hình), chỉ hiện ra khi hover Việt Nam.
+          const glowMat = new THREE.SpriteMaterial({
+            map: dotTex, color: 0xfff2c9, transparent: true, opacity: 0,
+            depthWrite: false, sizeAttenuation: true, blending: THREE.AdditiveBlending
           });
-          const halo = new THREE.Sprite(haloMat);
-          halo.position.copy(pos);
-          halo.scale.set(0.02, 0.02, 1);
-          groupObj.add(halo);
-          islandHaloMeshes.push(halo);
+          const glow = new THREE.Sprite(glowMat);
+          glow.position.copy(pos);
+          glow.scale.set(0.024, 0.024, 1);
+          glow.renderOrder = 5;
+          groupObj.add(glow);
+          vnIslandGlowSprites.push(glow);
         });
         parent.add(groupObj);
       });
+    }
+
+    // Bật/tắt vầng sáng của TOÀN BỘ đảo thuộc Hoàng Sa + Trường Sa — gọi hàm này mỗi khi biết
+    // được đang hover đúng Việt Nam (đất liền) hay không, để hai quần đảo luôn "ăn theo" cùng
+    // lúc với phần đất liền, tạo cảm giác đây là MỘT lãnh thổ Việt Nam thống nhất khi hover.
+    let vnIslandsHighlighted = false;
+    function setVNIslandsHighlighted(on) {
+      if (vnIslandsHighlighted === on) return;
+      vnIslandsHighlighted = on;
+      vnIslandGlowSprites.forEach(s => { s.material.opacity = on ? 0.95 : 0; });
     }
 
     function onResize() {
@@ -4908,6 +4884,7 @@
         const hits = earthMesh ? raycaster.intersectObject(earthMesh) : [];
         if (!hits.length || !hits[0].uv) {
           if (state.hoverId != null) { state.hoverId = null; drawOverlay(); }
+          setVNIslandsHighlighted(false);
           hideTooltip(); resetLegendHover();
           return;
         }
@@ -4932,16 +4909,16 @@
         }
         if (f) {
           if (state.hoverId !== f.id) { state.hoverId = f.id; drawOverlay(); }
-          // Việt Nam trong bộ dữ liệu biên giới dùng mã ISO3 "VNM" — hễ đang hover đúng nước này,
-          // cùng lúc làm nổi bật cả Hoàng Sa & Trường Sa (xem drawIslandHighlights + animate()).
-          state.vnHover = (f.id === 'VNM');
-          const baseName = (f.properties && f.properties.name) || f.id;
-          const name = state.vnHover ? baseName + ' · gồm Hoàng Sa & Trường Sa' : baseName;
-          showTooltip(clientX, clientY, name, dataMap[f.id], cfg, f.id);
-          updateLegendHover(cfg, name, dataMap[f.id], f.id);
+          // Đang hover đúng polygon đất liền Việt Nam (id=VNM trong GeoJSON) -> bật thêm vầng
+          // sáng ở Hoàng Sa + Trường Sa để cả 3 phần cùng "sáng lên" như một lãnh thổ thống nhất.
+          setVNIslandsHighlighted(f.id === VN_MAINLAND_ID);
+          const name = (f.properties && f.properties.name) || f.id;
+          const displayName = f.id === VN_MAINLAND_ID ? name + ' (gồm Hoàng Sa & Trường Sa)' : name;
+          showTooltip(clientX, clientY, displayName, dataMap[f.id], cfg, f.id);
+          updateLegendHover(cfg, displayName, dataMap[f.id], f.id);
         } else {
           if (state.hoverId != null) { state.hoverId = null; drawOverlay(); }
-          state.vnHover = false;
+          setVNIslandsHighlighted(false);
           hideTooltip(); resetLegendHover();
         }
       } catch (err) {
@@ -5040,7 +5017,8 @@
 
       canvasEl.addEventListener('pointerleave', () => {
         if (dragging) return;
-        state.hoverId = null; state.vnHover = false; drawOverlay();
+        state.hoverId = null; drawOverlay();
+        setVNIslandsHighlighted(false);
         hideTooltip(); resetLegendHover();
         scheduleAutoRotateResume();
       });
@@ -5160,7 +5138,6 @@
         onResize();
         window.addEventListener('resize', onResize);
 
-        let vnHoverT = 0; // hệ số làm mượt 0..1, tiến dần tới trạng thái đang/không hover Việt Nam
         function animate() {
           requestAnimationFrame(animate);
           if (autoRotate) earthGroup.rotation.y += AUTO_ROTATE_SPEED;
@@ -5168,21 +5145,6 @@
           // Zoom mượt: camera trôi dần tới targetZoom mỗi khung hình thay vì nhảy tức thì — hệ số
           // 0.14 cho cảm giác "trớn" nhẹ giống các app bản đồ/globe chuyên nghiệp.
           camera.position.z += (targetZoom - camera.position.z) * 0.14;
-
-          // Khi con trỏ đang ở trên lãnh thổ Việt Nam, làm 2 quần đảo cùng "sáng lên" và nhấp
-          // nháy nhẹ nhàng để người xem thấy ngay chúng thuộc về Việt Nam — tắt dần khi rời chuột.
-          const target = state.vnHover ? 1 : 0;
-          vnHoverT += (target - vnHoverT) * 0.12;
-          if (vnHoverT > 0.002) {
-            const pulse = 0.6 + Math.sin(performance.now() * 0.006) * 0.4;
-            islandHaloMeshes.forEach(h => {
-              h.material.opacity = 0.55 * vnHoverT;
-              const s = 0.02 * (1 + pulse * 0.5 * vnHoverT);
-              h.scale.set(s, s, 1);
-            });
-          } else if (islandHaloMeshes.length) {
-            islandHaloMeshes.forEach(h => { h.material.opacity = 0; h.scale.set(0.02, 0.02, 1); });
-          }
 
           renderer.render(scene, camera);
         }
